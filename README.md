@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Score Performance Hub
 
 Uma aplicação moderna para gerenciamento de performance e métricas, construída com React, TypeScript e Supabase.
@@ -217,3 +218,6 @@ A partir de julho de 2025, os uploads de fotos de perfil (avatar) são feitos di
 
 - Nunca versionar arquivos `.env` com segredos reais. Use `.env.example` para mostrar a estrutura.
 - Sempre use HTTPS em produção.
+=======
+# sigdmus_ver_0.0
+>>>>>>> 968b40704f0a58fac5e80e2ac1df252298883bde
