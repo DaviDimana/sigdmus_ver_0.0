@@ -6,8 +6,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { usePerformances, usePerformance } from '@/hooks/usePerformances';
 import { toast } from 'sonner';
 import PerformanceForm from '@/components/PerformanceForm';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
+import { getUploadConfig } from '@/utils/apiConfig';
 
 function useQuery() {
   return new URLSearchParams(useLocation().search);
@@ -19,25 +18,19 @@ const NovaPerformance = () => {
   const id = query.get('id');
   const { createPerformance, updatePerformance } = usePerformances();
   const { performance, isLoading } = usePerformance(id || '');
-  const { profile } = useAuth();
   const canEditOrDelete = true;
 
   const isEdit = Boolean(id);
   const [sharedProgramUrl, setSharedProgramUrl] = useState<string | undefined>(undefined);
   const [sharedProgramFileName, setSharedProgramFileName] = useState<string | undefined>(undefined);
 
-  const apiUrl = import.meta.env.VITE_API_URL;
+  const { uploadUrl } = getUploadConfig();
 
   useEffect(() => {
     if (isEdit && performance && !performance?.programa_arquivo_url) {
       // Buscar outra performance do mesmo grupo que tenha programa
       (async () => {
-        const { data: groupPerformances, error } = await supabase
-          .from('performances')
-          .select('programa_arquivo_url')
-          .eq('local', performance.local)
-          .eq('data', performance.data)
-          .eq('horario', performance.horario);
+        const { data: groupPerformances, error } = await fetch(`${getApiUrl()}/api/performances?local=${performance.local}&data=${performance.data}&horario=${performance.horario}`);
         if (!error && groupPerformances) {
           const found = groupPerformances.find((p: any) => p.programa_arquivo_url && p.programa_arquivo_url.trim() !== '');
           if (found && found.programa_arquivo_url) {
@@ -59,7 +52,7 @@ const NovaPerformance = () => {
     const formData = new FormData();
     formData.append('file', file);
 
-    const res = await fetch(`${apiUrl}/api/upload`, {
+    const res = await fetch(uploadUrl, {
       method: 'POST',
       body: formData,
     });
@@ -73,41 +66,31 @@ const NovaPerformance = () => {
     return url; // já retorna a URL pública
   };
 
-  const deleteProgramFile = async (performanceId: string, local: string, dataStr: string, horario: string): Promise<boolean> => {
+  const deleteProgramFile = async (filePath: string, local: string, dataStr: string, horario: string): Promise<boolean> => {
     try {
-      console.log('Deletando arquivo do programa para performance:', performanceId);
-      // Listar arquivos na pasta da performance
-      const { data: files, error: listError } = await supabase.storage
-        .from('programas-concerto')
-        .list(performanceId);
-      if (listError) {
-        console.error('Erro ao listar arquivos:', listError);
-        return false;
+      // Chama o endpoint do backend para deletar o arquivo do VPS
+      const apiUrl = getUploadConfig().uploadsPath.replace('/uploads', ''); // obtém a base da API
+      const res = await fetch(`${apiUrl}/api/upload?file=${encodeURIComponent(filePath)}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Erro ao deletar arquivo');
       }
-      if (files && files.length > 0) {
-        // Deletar todos os arquivos na pasta
-        const filePaths = files.map(file => `${performanceId}/${file.name}`);
-        const { error: deleteError } = await supabase.storage
-          .from('programas-concerto')
-          .remove(filePaths);
-        if (deleteError) {
-          console.error('Erro ao deletar arquivos:', deleteError);
-          return false;
-        }
-        console.log('Arquivos deletados com sucesso:', filePaths);
-      }
+
       // Limpar o campo programa_arquivo_url de todas as performances com mesmo local, data e horário
-      const { error: updateError } = await supabase
-        .from('performances')
-        .update({ programa_arquivo_url: null })
-        .eq('local', local)
-        .eq('data', dataStr)
-        .eq('horario', horario);
+      const { error: updateError } = await fetch(`${getApiUrl()}/api/performances?local=${local}&data=${dataStr}&horario=${horario}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ programa_arquivo_url: null }),
+      });
       if (updateError) {
         console.error('Erro ao limpar programa_arquivo_url das performances relacionadas:', updateError);
         return false;
       }
-      console.log('Campo programa_arquivo_url limpo para todas as performances relacionadas');
       return true;
     } catch (error) {
       console.error('Erro ao deletar arquivo do programa:', error);
@@ -127,12 +110,7 @@ const NovaPerformance = () => {
       }
       
       // Buscar todas as performances com mesmo local, data e horário
-      const { data: relatedPerformances, error: relatedError } = await supabase
-        .from('performances')
-        .select('id')
-        .eq('data', data.data)
-        .eq('local', data.local)
-        .eq('horario', data.horario);
+      const { data: relatedPerformances, error: relatedError } = await fetch(`${getApiUrl()}/api/performances?data=${data.data}&local=${data.local}&horario=${data.horario}`);
       
       if (relatedError) {
         console.error('Erro ao buscar performances relacionadas:', relatedError);
@@ -151,10 +129,13 @@ const NovaPerformance = () => {
       const performanceIds = relatedPerformances.map((p: any) => p.id);
       console.log('IDs das performances para atualizar:', performanceIds);
       
-      const { error: updateError } = await supabase
-        .from('performances')
-        .update({ programa_arquivo_url: programUrl })
-        .in('id', performanceIds);
+      const { error: updateError } = await fetch(`${getApiUrl()}/api/performances?id=${performanceIds.join(',')}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ programa_arquivo_url: programUrl }),
+      });
       
       if (updateError) {
         console.error('Erro ao atualizar performances relacionadas:', updateError);
@@ -205,7 +186,7 @@ const NovaPerformance = () => {
       // Se está editando e o usuário quer remover o arquivo existente
       if (isEdit && removeExistingFile && id) {
         console.log('Removendo arquivo existente da performance:', id);
-        const deleted = await deleteProgramFile(id, performanceData.local, performanceData.data, performanceData.horario);
+        const deleted = await deleteProgramFile(performanceData.programa_arquivo_nome, performanceData.local, performanceData.data, performanceData.horario);
         if (deleted) {
           console.log('Arquivo existente removido com sucesso');
           performanceData.programa_arquivo_url = null;
@@ -216,15 +197,10 @@ const NovaPerformance = () => {
       
       // 1. Buscar se já existe performance com mesma data, local e horário
       // Se estiver editando, excluir a performance atual da busca
-      let query = supabase
-        .from('performances')
-        .select('id, programa_arquivo_url')
-        .eq('data', performanceData.data)
-        .eq('local', performanceData.local)
-        .eq('horario', performanceData.horario);
+      let query = fetch(`${getApiUrl()}/api/performances?data=${performanceData.data}&local=${performanceData.local}&horario=${performanceData.horario}`);
       
       if (isEdit && id) {
-        query = query.neq('id', id);
+        query = fetch(`${getApiUrl()}/api/performances?data=${performanceData.data}&local=${performanceData.local}&horario=${performanceData.horario}&id=${id}`);
         console.log('Excluindo performance atual da busca:', id);
       }
       

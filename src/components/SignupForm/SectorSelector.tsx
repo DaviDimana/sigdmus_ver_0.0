@@ -1,12 +1,11 @@
-
 import React, { useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
+import { getApiUrl } from '@/utils/apiConfig';
 
 interface SectorSelectorProps {
   value: string;
@@ -14,6 +13,40 @@ interface SectorSelectorProps {
   setores: Array<{ id: string; nome: string }>;
   onSectorAdded: () => void;
 }
+
+// Função para obter o token do localStorage
+const getToken = (): string | null => {
+  return localStorage.getItem('auth_token');
+};
+
+// Função para fazer requisições autenticadas
+const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  const token = getToken();
+  if (!token) {
+    throw new Error('Token não encontrado');
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      // Token inválido, fazer logout
+      localStorage.removeItem('auth_token');
+      throw new Error('Sessão expirada');
+    }
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Erro na requisição');
+  }
+
+  return response;
+};
 
 const SectorSelector: React.FC<SectorSelectorProps> = ({ 
   value, 
@@ -23,7 +56,6 @@ const SectorSelector: React.FC<SectorSelectorProps> = ({
 }) => {
   const [newSetor, setNewSetor] = useState('');
   const [isAdding, setIsAdding] = useState(false);
-  const { toast } = useToast();
 
   const handleAddSetor = async () => {
     if (!newSetor.trim()) return;
@@ -32,49 +64,28 @@ const SectorSelector: React.FC<SectorSelectorProps> = ({
     try {
       console.log('Tentando adicionar setor:', newSetor.trim());
       
-      const { data, error } = await supabase
-        .from('setores')
-        .insert({ nome: newSetor.trim() })
-        .select()
-        .single();
+      const res = await authenticatedFetch(`${getApiUrl()}/api/setores`, {
+        method: 'POST',
+        body: JSON.stringify({ nome: newSetor.trim() }),
+      });
 
-      if (error) {
-        console.error('Erro ao adicionar setor:', error);
-        
-        // Check for duplicate error
-        if (error.code === '23505') {
-          toast({
-            title: "Erro",
-            description: "Este setor já existe.",
-            variant: "destructive",
-          });
-        } else {
-          toast({
-            title: "Erro",
-            description: error.message || "Erro ao adicionar setor.",
-            variant: "destructive",
-          });
-        }
-        return;
-      }
-
+      const data = await res.json();
       console.log('Setor adicionado:', data);
       
       onSectorAdded();
       onChange(newSetor.trim());
       setNewSetor('');
       
-      toast({
-        title: "Setor adicionado",
-        description: "Novo setor criado com sucesso.",
-      });
+      toast.success('Setor adicionado com sucesso!');
     } catch (error: any) {
-      console.error('Erro inesperado ao adicionar setor:', error);
-      toast({
-        title: "Erro",
-        description: "Erro inesperado ao adicionar setor.",
-        variant: "destructive",
-      });
+      console.error('Erro ao adicionar setor:', error);
+      
+      // Check for duplicate error
+      if (error.message.includes('duplicate') || error.message.includes('já existe')) {
+        toast.error('Este setor já existe.');
+      } else {
+        toast.error(`Erro ao adicionar setor: ${error.message}`);
+      }
     } finally {
       setIsAdding(false);
     }

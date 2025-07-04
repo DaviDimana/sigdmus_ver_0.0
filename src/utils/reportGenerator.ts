@@ -3,7 +3,7 @@ import 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { Document, Packer, Paragraph, Table, TableCell, TableRow, WidthType } from 'docx';
 import { saveAs } from 'file-saver';
-import { supabase } from '@/integrations/supabase/client';
+import { getApiUrl } from '@/utils/apiConfig';
 
 interface GenerateReportParams {
   type: 'partituras' | 'performances';
@@ -40,26 +40,53 @@ const fieldLabels = {
   }
 };
 
+// Função para obter o token do localStorage
+const getToken = (): string | null => {
+  return localStorage.getItem('auth_token');
+};
+
+// Função para fazer requisições autenticadas
+const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  const token = getToken();
+  if (!token) {
+    throw new Error('Token não encontrado');
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      // Token inválido, fazer logout
+      localStorage.removeItem('auth_token');
+      throw new Error('Sessão expirada');
+    }
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Erro na requisição');
+  }
+
+  return response;
+};
+
 export const generateReport = async ({ type, fields, format }: GenerateReportParams) => {
   console.log('Generating report:', { type, fields, format });
   
   try {
-    // Buscar dados do banco
-    const { data, error } = await supabase
-      .from(type)
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (error) {
-      console.error('Error fetching data for report:', error);
-      throw error;
-    }
+    // Buscar dados da API REST
+    const res = await authenticatedFetch(`${getApiUrl()}/api/${type}`);
+    const data = await res.json();
     
     console.log('Data fetched for report:', data);
     
     const currentFieldLabels = fieldLabels[type];
     const headers = fields.map(field => currentFieldLabels[field as keyof typeof currentFieldLabels] || field);
-    const rows = data.map(item => 
+    const rows = data.map((item: any) => 
       fields.map(field => {
         const value = item[field as keyof typeof item];
         if (field === 'digitalizado') {

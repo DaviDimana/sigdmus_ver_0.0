@@ -14,7 +14,6 @@ import PartituraEmptyState from '@/components/PartituraEmptyState';
 import PartituraViewer from '@/components/PartituraViewer';
 import UploadDialog from '@/components/UploadDialog';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/hooks/useAuth';
@@ -118,22 +117,25 @@ const Partituras = () => {
     toast.info(`Baixando ${fileName}...`, { id: `download-${fileName}` });
 
     try {
-      const { data, error } = await supabase.functions.invoke('download-arquivo', {
-        body: { filePath: `${partituraId}/${fileName}` },
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        throw new Error('Token não encontrado');
+      }
+
+      const res = await fetch(`${getApiUrl()}/api/partituras/${partituraId}/download/${encodeURIComponent(fileName)}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
       });
 
-      if (error) {
-        throw new Error(error.message);
-      }
-      
-      if (!(data instanceof Blob)) {
-        // Se a função retornou um erro JSON, o 'data' pode não ser um Blob.
-        const errorText = await new Response(data).text();
-        const parsedError = JSON.parse(errorText);
-        throw new Error(parsedError.error || 'Falha ao processar o arquivo.');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Falha ao processar o arquivo.');
       }
 
-      const url = window.URL.createObjectURL(data);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', fileName);
@@ -220,32 +222,55 @@ const Partituras = () => {
   async function handleDeletePdf(partituraId: string, fileInfo: { url: string; fileName: string; instrument: string | null }) {
     if (!window.confirm(`Tem certeza que deseja deletar o arquivo "${fileInfo.fileName}"?`)) return;
     try {
-      // Remove do Storage
-      const { error: storageError } = await supabase.storage.from('partituras').remove([`${partituraId}/${fileInfo.fileName}`]);
-      if (storageError) {
-        toast.error('Erro ao remover do Storage: ' + storageError.message);
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        throw new Error('Token não encontrado');
+      }
+
+      // Remove do VPS
+      const apiUrl = getUploadConfig().uploadsPath.replace('/uploads', '');
+      const res = await fetch(`${apiUrl}/api/upload?file=partituras/${fileInfo.fileName}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        toast.error('Erro ao remover do VPS: ' + (err.error || 'Erro desconhecido'));
         return;
       }
-      // Remove do array pdf_urls
-      const { data: partitura, error: fetchError } = await supabase
-        .from('partituras')
-        .select('pdf_urls')
-        .eq('id', partituraId)
-        .single();
-      if (fetchError) {
-        toast.error('Erro ao buscar partitura: ' + fetchError.message);
+
+      // Remove do array pdf_urls no banco via API REST
+      const partituraRes = await fetch(`${getApiUrl()}/api/partituras/${partituraId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (!partituraRes.ok) {
+        toast.error('Erro ao buscar partitura');
         return;
       }
+      
+      const partitura = await partituraRes.json();
       const newPdfUrls = (partitura.pdf_urls || []).filter((f: any) => f.fileName !== fileInfo.fileName);
-      const { error: updateError } = await supabase
-        .from('partituras')
-        .update({ pdf_urls: newPdfUrls })
-        .eq('id', partituraId);
-      if (updateError) {
-        toast.error('Erro ao atualizar partitura: ' + updateError.message);
+      
+      const updateRes = await fetch(`${getApiUrl()}/api/partituras/${partituraId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ pdf_urls: newPdfUrls }),
+      });
+      
+      if (!updateRes.ok) {
+        toast.error('Erro ao atualizar partitura');
         return;
       }
-      // Atualiza a interface
+      
       setSelectedPartitura((prev: any) => ({ ...prev, pdf_urls: newPdfUrls }));
       toast.success(`Arquivo "${fileInfo.fileName}" deletado com sucesso.`);
     } catch (err: any) {
@@ -257,25 +282,42 @@ const Partituras = () => {
   async function handleDeleteAllPdfs(partituraId: string, pdfUrls: { url: string; fileName: string; instrument: string | null }[]) {
     if (!window.confirm('Tem certeza que deseja apagar TODOS os arquivos digitalizados desta partitura?')) return;
     try {
-      // Remove todos do Storage
-      const filePaths = pdfUrls.map(f => `${partituraId}/${f.fileName}`);
-      if (filePaths.length > 0) {
-        const { error: storageError } = await supabase.storage.from('partituras').remove(filePaths);
-        if (storageError) {
-          toast.error('Erro ao remover do Storage: ' + storageError.message);
-          return;
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        throw new Error('Token não encontrado');
+      }
+
+      const apiUrl = getUploadConfig().uploadsPath.replace('/uploads', '');
+      // Remove todos do VPS
+      for (const f of pdfUrls) {
+        const res = await fetch(`${apiUrl}/api/upload?file=partituras/${f.fileName}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          toast.error('Erro ao remover do VPS: ' + (err.error || 'Erro desconhecido'));
+          // Continue tentando remover os outros arquivos
         }
       }
-      // Limpa o array pdf_urls
-      const { error: updateError } = await supabase
-        .from('partituras')
-        .update({ pdf_urls: [] })
-        .eq('id', partituraId);
-      if (updateError) {
-        toast.error('Erro ao atualizar partitura: ' + updateError.message);
+      
+      // Limpa o array pdf_urls no banco via API REST
+      const updateRes = await fetch(`${getApiUrl()}/api/partituras/${partituraId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ pdf_urls: [] }),
+      });
+      
+      if (!updateRes.ok) {
+        toast.error('Erro ao atualizar partitura');
         return;
       }
-      // Atualiza a interface
+      
       setSelectedPartitura((prev: any) => ({ ...prev, pdf_urls: [] }));
       toast.success('Todos os arquivos foram deletados.');
     } catch (err: any) {
@@ -610,15 +652,17 @@ const Partituras = () => {
                 {canEditOrDelete && (
                 <Button variant="destructive" onClick={async () => {
                   if (window.confirm('Tem certeza que deseja deletar esta partitura?')) {
-                    const { error } = await supabase
-                      .from('partituras')
-                      .delete()
-                      .eq('id', selectedPartitura.id);
-                    if (!error) {
+                    const res = await fetch(`${getApiUrl()}/api/partituras/${selectedPartitura.id}`, {
+                      method: 'DELETE',
+                      headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+                      }
+                    });
+                    if (res.ok) {
                       setSelectedPartitura(null);
                       toast.success('Partitura deletada com sucesso!');
                     } else {
-                      toast.error('Erro ao deletar partitura: ' + error.message);
+                      toast.error('Erro ao deletar partitura: ' + (await res.json()).error);
                     }
                   }
                 }}>

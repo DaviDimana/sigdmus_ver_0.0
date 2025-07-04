@@ -27,7 +27,19 @@ const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
     return <Navigate to="/auth" replace />;
   }
 
-  // Removendo verificação de role - qualquer usuário autenticado pode acessar
+  // Novo: Redirecionar se não confirmado
+  if (!user.confirmado) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-lg text-red-600 font-bold mb-2">Conta não confirmada</p>
+          <p className="text-gray-700">Por favor, confirme seu e-mail para acessar o sistema.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Qualquer usuário autenticado e confirmado pode acessar
   return <>{children}</>;
 };
 

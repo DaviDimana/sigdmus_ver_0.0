@@ -1,20 +1,66 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SiGDMus - Sistema Integrado de Gestão e Documentação Musical</title>
-    <meta name="description" content="Sistema Integrado de Gestão e Documentação Musical" />
-    <meta name="author" content="Lovable" />
-
-    <meta property="og:title" content="SiGDMus - Sistema Integrado de Gestão e Documentação Musical" />
-    <meta property="og:description" content="Sistema Integrado de Gestão e Documentação Musical" />
+    
+    <!-- Ícone único para todos os dispositivos -->
+    <link rel="icon" type="image/png" href="/icon-source.png" />
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#0ea5e9" />
+    <meta name="background-color" content="#fafafa" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="SiGDMus" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="msapplication-TileColor" content="#0ea5e9" />
+    <meta name="msapplication-tap-highlight" content="no" />
+    
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="Sistema completo para gestão de partituras, performances e repertório musical. Organize sua biblioteca musical digital com facilidade." />
+    <meta name="keywords" content="música, partituras, performances, gestão musical, biblioteca musical, repertório, orquestra, coral, música clássica" />
+    <meta name="author" content="SiGDMus" />
+    <meta name="robots" content="index, follow" />
+    
+    <!-- Open Graph Meta Tags -->
+    <meta property="og:title" content="SiGDMus - Sistema de Gestão Digital de Música" />
+    <meta property="og:description" content="Sistema completo para gestão de partituras, performances e repertório musical." />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
-
+    <meta property="og:url" content="https://sigdmus.com" />
+    <meta property="og:image" content="/icons/icon-512x512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:locale" content="pt_BR" />
+    
+    <!-- Twitter Card Meta Tags -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@lovable_dev" />
-    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    <meta name="twitter:title" content="SiGDMus - Sistema de Gestão Digital de Música" />
+    <meta name="twitter:description" content="Sistema completo para gestão de partituras, performances e repertório musical." />
+    <meta name="twitter:image" content="/icons/icon-512x512.png" />
+    
+    <!-- Apple Touch Icons (usando icon-source.png) -->
+    <link rel="apple-touch-icon" href="/icon-source.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180x180.png" sizes="180x180" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-167x167.png" sizes="167x167" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-152x152.png" sizes="152x152" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-120x120.png" sizes="120x120" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-87x87.png" sizes="87x87" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-80x80.png" sizes="80x80" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-76x76.png" sizes="76x76" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-60x60.png" sizes="60x60" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-40x40.png" sizes="40x40" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-29x29.png" sizes="29x29" />
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Preconnect to external domains -->
+    <link rel="preconnect" href="https://oyidopwxlxwrwcjxjyek.supabase.co" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    
+    <title>SiGDMus - Sistema de Gestão e Documentação Musical</title>
   </head>
 
   <body>
@@ -22,5 +68,53 @@
     <!-- IMPORTANT: DO NOT REMOVE THIS SCRIPT TAG OR THIS VERY COMMENT! -->
     <script src="https://cdn.gpteng.co/gptengineer.js" type="module"></script>
     <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- PWA Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then((registration) => {
+              console.log('SW registered: ', registration);
+              
+              // Verificar atualizações
+              registration.addEventListener('updatefound', () => {
+                const newWorker = registration.installing;
+                newWorker.addEventListener('statechange', () => {
+                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    // Nova versão disponível
+                    if (confirm('Nova versão do SiGDMus disponível! Deseja atualizar?')) {
+                      newWorker.postMessage({ type: 'SKIP_WAITING' });
+                      window.location.reload();
+                    }
+                  }
+                });
+              });
+            })
+            .catch((registrationError) => {
+              console.log('SW registration failed: ', registrationError);
+            });
+        });
+      }
+      
+      // PWA Install Prompt
+      let deferredPrompt;
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        
+        // Mostrar banner de instalação se não estiver instalado
+        if (!window.matchMedia('(display-mode: standalone)').matches) {
+          // Você pode mostrar um banner personalizado aqui
+          console.log('PWA install prompt available');
+        }
+      });
+      
+      // PWA Install Handler
+      window.addEventListener('appinstalled', () => {
+        console.log('PWA installed successfully');
+        deferredPrompt = null;
+      });
+    </script>
   </body>
 </html>

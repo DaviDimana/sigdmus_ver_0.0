@@ -1,6 +1,13 @@
 import { useEffect, useState, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import { User } from '@supabase/supabase-js';
+import { getApiUrl } from '@/utils/apiConfig';
+
+interface User {
+  id: string;
+  nome: string;
+  email: string;
+  role: string;
+  confirmado: boolean;
+}
 
 interface Profile {
   id: string;
@@ -11,6 +18,11 @@ interface Profile {
   // adicione outros campos se necessário
 }
 
+interface AuthResponse {
+  token: string;
+  user: User;
+}
+
 export const useAuth = () => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -18,36 +30,111 @@ export const useAuth = () => {
   const [error, setError] = useState<string | null>(null);
   const lastFetchedUserId = useRef<string | null>(null);
 
+  // Função para obter o token do localStorage
+  const getToken = (): string | null => {
+    return localStorage.getItem('auth_token');
+  };
+
+  // Função para salvar o token no localStorage
+  const saveToken = (token: string): void => {
+    localStorage.setItem('auth_token', token);
+  };
+
+  // Função para remover o token do localStorage
+  const removeToken = (): void => {
+    localStorage.removeItem('auth_token');
+  };
+
+  // Função para verificar se o token é válido
+  const isTokenValid = (token: string): boolean => {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return payload.exp * 1000 > Date.now();
+    } catch {
+      return false;
+    }
+  };
+
+  // Função para fazer requisições autenticadas
+  const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+    const token = getToken();
+    if (!token) {
+      throw new Error('Token não encontrado');
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        // Token inválido, fazer logout
+        removeToken();
+        setUser(null);
+        setProfile(null);
+        throw new Error('Sessão expirada');
+      }
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Erro na requisição');
+    }
+
+    return response;
+  };
+
   useEffect(() => {
-    let isMounted = true;
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        if (lastFetchedUserId.current !== session.user.id) {
-          lastFetchedUserId.current = session.user.id;
-          fetchProfile(session.user.id);
-        }
-      } else {
+    const initializeAuth = async () => {
+      const token = getToken();
+      
+      if (!token || !isTokenValid(token)) {
+        setUser(null);
         setProfile(null);
         setLoading(false);
+        return;
       }
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        if (lastFetchedUserId.current !== session.user.id) {
-          lastFetchedUserId.current = session.user.id;
-          await fetchProfile(session.user.id);
+
+      try {
+        // Decodificar o token para obter informações do usuário
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const userId = payload.id;
+        
+        if (lastFetchedUserId.current !== userId) {
+          lastFetchedUserId.current = userId;
+          
+          // Buscar dados do usuário
+          const response = await authenticatedFetch(`${getApiUrl()}/api/usuarios/${userId}`);
+          const userData = await response.json();
+          
+          setUser(userData);
+          
+          // Por enquanto, vamos usar os dados básicos do usuário como perfil
+          // Você pode expandir isso para buscar um perfil mais completo se necessário
+          setProfile({
+            id: userData.id,
+            name: userData.nome,
+            email: userData.email,
+            role_user_role: 'MUSICO', // Valor padrão
+            avatar_url: undefined,
+          });
         }
-      } else {
+      } catch (error: any) {
+        console.error('Erro ao inicializar autenticação:', error);
+        if (error.message === 'Sessão expirada') {
+          removeToken();
+        }
+        setUser(null);
         setProfile(null);
+        setError(error.message);
+      } finally {
         setLoading(false);
       }
-    });
-    return () => {
-      isMounted = false;
-      subscription.unsubscribe();
     };
+
+    initializeAuth();
   }, []);
 
   const fetchProfile = async (userId: string) => {
@@ -55,26 +142,19 @@ export const useAuth = () => {
     setError(null);
     try {
       console.log('Fetching profile for user:', userId);
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-      if (error) {
-        if (error.code === 'PGRST116') {
-          console.log('Profile not found for user:', userId);
-          setProfile(null);
-          setError('Perfil não encontrado.');
-        } else {
-          console.error('Error fetching profile:', error);
-          setProfile(null);
-          setError(error.message || 'Erro ao buscar perfil.');
-        }
-      } else {
-        console.log('Profile fetched successfully:', data);
-        setProfile(data);
-        setError(null);
-      }
+      
+      const response = await authenticatedFetch(`${getApiUrl()}/api/usuarios/${userId}`);
+      const userData = await response.json();
+      
+      console.log('Profile fetched successfully:', userData);
+      setProfile({
+        id: userData.id,
+        name: userData.nome,
+        email: userData.email,
+        role_user_role: 'MUSICO', // Valor padrão
+        avatar_url: undefined,
+      });
+      setError(null);
     } catch (error: any) {
       console.error('Error in fetchProfile:', error);
       setError(error.message || 'Erro inesperado ao buscar perfil.');
@@ -85,32 +165,68 @@ export const useAuth = () => {
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const response = await fetch(`${getApiUrl()}/api/user_profiles/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          senha: password,
+        }),
       });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro no login');
+      }
+
+      const data: AuthResponse = await response.json();
+      
+      // Salvar token
+      saveToken(data.token);
+      
+      // Atualizar estado
+      setUser({ ...data.user, role: data.user.role, confirmado: data.user.confirmado });
+      setProfile({
+        id: data.user.id,
+        name: data.user.nome,
+        email: data.user.email,
+        role_user_role: 'MUSICO', // Valor padrão
+        avatar_url: undefined,
+      });
+      
       return data;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error signing in:', error);
       throw error;
     }
   };
 
-  const signUp = async (email: string, password: string, metadata: object) => {
+  const signUp = async (email: string, password: string, metadata: any) => {
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: metadata
-        }
+      const response = await fetch(`${getApiUrl()}/api/usuarios`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nome: metadata.name || metadata.nome || 'Usuário',
+          email,
+          senha: password,
+        }),
       });
 
-      if (error) throw error;
-      return data;
-    } catch (error) {
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro no cadastro');
+      }
+
+      const data = await response.json();
+      
+      // Após o cadastro, fazer login automaticamente
+      return await signIn(email, password);
+    } catch (error: any) {
       console.error('Error signing up:', error);
       throw error;
     }
@@ -118,12 +234,15 @@ export const useAuth = () => {
 
   const signOut = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      removeToken();
       setUser(null);
       setProfile(null);
     } catch (error) {
       console.error('Error signing out:', error);
+      // Mesmo com erro, limpar o estado local
+      removeToken();
+      setUser(null);
+      setProfile(null);
       throw error;
     }
   };
@@ -138,5 +257,7 @@ export const useAuth = () => {
     signIn,
     signUp,
     signOut,
+    getToken,
+    authenticatedFetch,
   };
 };

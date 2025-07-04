@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Badge } from '@/components/ui/badge';
 import { FileText, Music, Calendar, Download } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { getApiUrl } from '@/utils/apiConfig';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
@@ -18,6 +18,40 @@ interface ObraDetailsDialogProps {
   formatFileSize: (bytes: number) => string;
   onDeleteAllArquivos?: () => void;
 }
+
+// Função para obter o token do localStorage
+const getToken = (): string | null => {
+  return localStorage.getItem('auth_token');
+};
+
+// Função para fazer requisições autenticadas
+const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  const token = getToken();
+  if (!token) {
+    throw new Error('Token não encontrado');
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      // Token inválido, fazer logout
+      localStorage.removeItem('auth_token');
+      throw new Error('Sessão expirada');
+    }
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Erro na requisição');
+  }
+
+  return response;
+};
 
 const ObraDetailsDialog: React.FC<ObraDetailsDialogProps> = ({
   isOpen,
@@ -46,16 +80,8 @@ const ObraDetailsDialog: React.FC<ObraDetailsDialogProps> = ({
     queryKey: ['partituras-obra', obra],
     queryFn: async () => {
       console.log('Fetching partituras for obra:', obra);
-      const { data, error } = await supabase
-        .from('partituras')
-        .select('*')
-        .eq('titulo', obra);
-      
-      if (error) {
-        console.error('Error fetching partituras:', error);
-        return [];
-      }
-      
+      const res = await authenticatedFetch(`${getApiUrl()}/api/partituras?titulo=${encodeURIComponent(obra)}`);
+      const data = await res.json();
       return data || [];
     },
     enabled: isOpen && !!obra,
@@ -198,144 +224,88 @@ const ObraDetailsDialog: React.FC<ObraDetailsDialogProps> = ({
           )}
 
           {/* Categorias */}
-          <div>
-            <h3 className="text-lg font-semibold mb-3">Categorias Disponíveis</h3>
-            <div className="flex flex-wrap gap-2">
-              {categorias.map((categoria, index) => (
-                <Badge key={index} variant="secondary" className="text-sm">
-                  {categoria}
-                </Badge>
-              ))}
-            </div>
-          </div>
-
-          {/* Informações de Acesso */}
-          {hasRestrictedFiles && (
-            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <div className="flex items-center space-x-2">
-                <Badge variant="outline" className="text-yellow-700 border-yellow-300">
-                  Atenção
-                </Badge>
-                <span className="text-sm text-yellow-800">
-                  Esta obra contém arquivos com restrição de download
-                </span>
+          {categorias.length > 0 && (
+            <div>
+              <h3 className="text-lg font-semibold mb-3">Categorias de Arquivos</h3>
+              <div className="flex flex-wrap gap-2">
+                {categorias.map((categoria) => (
+                  <Badge key={categoria} variant="outline" className="bg-gray-50">
+                    {categoria}
+                  </Badge>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Lista de Arquivos com Collapse */}
+          {/* Lista de Arquivos */}
           <Collapsible open={isArquivosOpen} onOpenChange={setIsArquivosOpen}>
-            <div className="flex items-center gap-2 mb-3">
-              <CollapsibleTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-7 w-7 p-0">
-                  {isArquivosOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-                </Button>
-              </CollapsibleTrigger>
-              <h3 className="text-lg font-semibold">Arquivos PDF digitalizados</h3>
-              <span className="text-xs text-gray-500">({arquivosFiltrados.length})</span>
-            </div>
-            <CollapsibleContent>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {arquivosFiltrados.length === 0 && (
-                  <div className="text-sm text-gray-500 italic">Nenhum arquivo digitalizado.</div>
-                )}
-                {arquivosFiltrados.map((arquivo) => (
-                  <div key={arquivo.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center space-x-3 flex-1 min-w-0">
-                      {getFileIcon(arquivo.tipo)}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {arquivo.nome}
-                        </p>
-                        <div className="flex items-center space-x-2 mt-1">
-                          <Badge variant="outline" className="text-xs">
-                            {arquivo.categoria}
-                          </Badge>
-                          <span className="text-xs text-gray-500">
-                            {formatFileSize(arquivo.tamanho)}
-                          </span>
-                          {arquivo.restricao_download && (
-                            <Badge variant="outline" className="text-xs text-orange-600">
-                              Restrito
-                            </Badge>
-                          )}
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="w-full justify-between p-0 h-auto">
+                <h3 className="text-lg font-semibold">Arquivos ({arquivosFiltrados.length})</h3>
+                {isArquivosOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-2 mt-4">
+              {arquivosFiltrados.length === 0 ? (
+                <p className="text-gray-500 italic">Nenhum arquivo disponível.</p>
+              ) : (
+                <div className="space-y-2">
+                  {arquivosFiltrados.map((arquivo) => (
+                    <div key={arquivo.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        {getFileIcon(arquivo.tipo)}
+                        <div>
+                          <p className="font-medium">{arquivo.nome}</p>
+                          <p className="text-sm text-gray-500">
+                            {formatFileSize(arquivo.tamanho)} • {arquivo.downloads || 0} downloads
+                          </p>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                      <div className="flex items-center space-x-2 text-xs text-gray-500">
-                        <Download className="h-3 w-3" />
-                        <span>{arquivo.downloads || 0}</span>
-                      </div>
-                      {/* Botões de ação: só para ADMIN e GERENTE */}
-                      {canEditOrDelete && (
-                        <>
-                          {arquivo.instrumentoSelect}
-                          {arquivo.deleteButton}
-                          {arquivo.editButton}
-                        </>
-                      )}
-                      {/* Botão de download para músicos e usuários comuns (se autorizado) */}
-                      {!canEditOrDelete && (
+                      <div className="flex items-center space-x-2">
+                        {arquivo.restricao_download && (
+                          <Badge variant="outline" className="text-orange-600 border-orange-600">
+                            Restrito
+                          </Badge>
+                        )}
                         <Button
-                          size="sm"
                           variant="outline"
+                          size="sm"
                           onClick={() => handleDownload(arquivo)}
-                          className="h-8 w-8 p-0 flex-shrink-0"
-                          title="Download"
-                          disabled={arquivo.restricao_download && !arquivo.autorizado}
+                          className="flex items-center space-x-1"
                         >
                           <Download className="h-3 w-3" />
+                          <span>Baixar</span>
                         </Button>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-              {/* Botão Apagar todos: só para ADMIN e GERENTE */}
-              {canEditOrDelete && onDeleteAllArquivos && arquivosFiltrados.length > 0 && (
-                <div className="mt-4 flex justify-end">
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={onDeleteAllArquivos}
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Apagar todos os arquivos
-                  </Button>
+                  ))}
                 </div>
               )}
             </CollapsibleContent>
           </Collapsible>
 
-          {/* Metadados Adicionais */}
-          <div>
-            <h3 className="text-lg font-semibold mb-3">Informações Adicionais</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="font-medium text-gray-700">Data de Criação:</span>
-                <p className="text-gray-600">
-                  {new Date(Math.min(...arquivos.map(a => new Date(a.created_at).getTime()))).toLocaleDateString('pt-BR')}
-                </p>
-              </div>
-              <div>
-                <span className="font-medium text-gray-700">Última Atualização:</span>
-                <p className="text-gray-600">
-                  {new Date(Math.max(...arquivos.map(a => new Date(a.created_at).getTime()))).toLocaleDateString('pt-BR')}
-                </p>
-              </div>
-              <div>
-                <span className="font-medium text-gray-700">Total de Downloads:</span>
-                <p className="text-gray-600">{totalDownloads}</p>
-              </div>
-              <div>
-                <span className="font-medium text-gray-700">Arquivos Restritos:</span>
-                <p className="text-gray-600">
-                  {arquivos.filter(a => a.restricao_download).length} de {arquivos.length}
-                </p>
-              </div>
+          {/* Aviso sobre arquivos restritos */}
+          {hasRestrictedFiles && (
+            <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+              <p className="text-sm text-orange-800">
+                <strong>Atenção:</strong> Alguns arquivos têm restrição de download e podem requerer autorização.
+              </p>
             </div>
-          </div>
+          )}
+
+          {/* Botão para deletar todos os arquivos (apenas para admins) */}
+          {canEditOrDelete && arquivosFiltrados.length > 0 && onDeleteAllArquivos && (
+            <div className="pt-4 border-t">
+              <Button
+                variant="destructive"
+                onClick={onDeleteAllArquivos}
+                className="flex items-center space-x-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span>Deletar Todos os Arquivos</span>
+              </Button>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

@@ -1,0 +1,170 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.Partitura (
+  id integer NOT NULL DEFAULT nextval('"Partitura_id_seq"'::regclass),
+  setor USER-DEFINED NOT NULL,
+  titulo text NOT NULL,
+  compositor text NOT NULL,
+  instrumentacao text NOT NULL,
+  edicao text,
+  anoEdicao integer,
+  anoAquisicao integer,
+  generoForma text,
+  tonalidade text,
+  numArmario text,
+  numPrateleira text,
+  numPasta text,
+  digitalizado boolean NOT NULL DEFAULT false,
+  observacoes text,
+  arquivoUrl text,
+  createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt timestamp without time zone NOT NULL,
+  CONSTRAINT Partitura_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.User (
+  id integer NOT NULL DEFAULT nextval('"User_id_seq"'::regclass),
+  name text NOT NULL,
+  email text NOT NULL,
+  password text NOT NULL,
+  role USER-DEFINED NOT NULL DEFAULT 'USER'::"Role",
+  createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt timestamp without time zone NOT NULL,
+  CONSTRAINT User_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public._prisma_migrations (
+  id character varying NOT NULL,
+  checksum character varying NOT NULL,
+  finished_at timestamp with time zone,
+  migration_name character varying NOT NULL,
+  logs text,
+  rolled_back_at timestamp with time zone,
+  started_at timestamp with time zone NOT NULL DEFAULT now(),
+  applied_steps_count integer NOT NULL DEFAULT 0,
+  CONSTRAINT _prisma_migrations_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.anotacoes_partitura (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  partitura_id uuid NOT NULL,
+  usuario_id uuid NOT NULL,
+  dados_anotacao jsonb DEFAULT '[]'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT anotacoes_partitura_pkey PRIMARY KEY (id),
+  CONSTRAINT anotacoes_partitura_partitura_id_fkey FOREIGN KEY (partitura_id) REFERENCES public.partituras(id),
+  CONSTRAINT anotacoes_partitura_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.arquivos (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  nome text NOT NULL,
+  tipo text NOT NULL,
+  tamanho bigint NOT NULL,
+  categoria text NOT NULL,
+  obra text NOT NULL,
+  partitura_id uuid,
+  performance_id uuid,
+  arquivo_url text,
+  downloads integer DEFAULT 0,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  restricao_download boolean NOT NULL DEFAULT false,
+  usuario_upload uuid,
+  instrumento text,
+  url text,
+  CONSTRAINT arquivos_pkey PRIMARY KEY (id),
+  CONSTRAINT arquivos_partitura_id_fkey FOREIGN KEY (partitura_id) REFERENCES public.partituras(id),
+  CONSTRAINT arquivos_performance_id_fkey FOREIGN KEY (performance_id) REFERENCES public.performances(id),
+  CONSTRAINT arquivos_usuario_upload_fkey FOREIGN KEY (usuario_upload) REFERENCES auth.users(id)
+);
+CREATE TABLE public.instituicoes (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  nome text NOT NULL UNIQUE,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT instituicoes_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.partituras (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  setor text NOT NULL,
+  titulo text NOT NULL,
+  compositor text NOT NULL,
+  instrumentacao text NOT NULL,
+  tonalidade text,
+  genero text,
+  edicao text,
+  ano_edicao text,
+  digitalizado boolean NOT NULL DEFAULT false,
+  numero_armario text,
+  numero_prateleira text,
+  numero_pasta text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  instituicao text,
+  observacoes text,
+  pdf_urls ARRAY DEFAULT '{}'::jsonb[],
+  CONSTRAINT partituras_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.performances (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  titulo_obra text NOT NULL,
+  nome_compositor text NOT NULL,
+  local text NOT NULL,
+  data date NOT NULL,
+  horario time without time zone NOT NULL,
+  maestros text NOT NULL,
+  interpretes text NOT NULL,
+  release text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  programa_arquivo_url text,
+  CONSTRAINT performances_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
+  name text,
+  email text,
+  role text DEFAULT 'MUSICO'::text,
+  avatar_url text,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  funcao text,
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.setores (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  nome text NOT NULL UNIQUE,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT setores_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.solicitacoes_download (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  arquivo_id uuid NOT NULL,
+  usuario_solicitante uuid NOT NULL,
+  usuario_responsavel uuid NOT NULL,
+  status text NOT NULL DEFAULT 'pendente'::text CHECK (status = ANY (ARRAY['pendente'::text, 'aprovada'::text, 'rejeitada'::text])),
+  mensagem text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT solicitacoes_download_pkey PRIMARY KEY (id),
+  CONSTRAINT solicitacoes_download_usuario_solicitante_fkey FOREIGN KEY (usuario_solicitante) REFERENCES auth.users(id),
+  CONSTRAINT solicitacoes_download_arquivo_id_fkey FOREIGN KEY (arquivo_id) REFERENCES public.arquivos(id),
+  CONSTRAINT solicitacoes_download_usuario_responsavel_fkey FOREIGN KEY (usuario_responsavel) REFERENCES auth.users(id)
+);
+CREATE TABLE public.user_profiles (
+  id uuid NOT NULL,
+  name text,
+  email text,
+  role_user_role text,
+  avatar_url text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  role text DEFAULT 'MUSICO'::text,
+  instituicao text,
+  setor text,
+  instrumento text,
+  status text,
+  telefone text,
+  CONSTRAINT user_profiles_pkey PRIMARY KEY (id)
+);

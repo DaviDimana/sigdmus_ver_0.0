@@ -1,51 +1,140 @@
-import { supabase } from '@/integrations/supabase/client';
+import { getApiUrl } from '@/utils/apiConfig';
 import type { UserProfile, AuthState } from '@/types/auth';
 
 export const useAuthActions = (
   authState: AuthState, 
   setAuthState: React.Dispatch<React.SetStateAction<AuthState>>
 ) => {
+  // Função para obter o token do localStorage
+  const getToken = (): string | null => {
+    return localStorage.getItem('auth_token');
+  };
+
+  // Função para salvar o token no localStorage
+  const saveToken = (token: string): void => {
+    localStorage.setItem('auth_token', token);
+  };
+
+  // Função para remover o token do localStorage
+  const removeToken = (): void => {
+    localStorage.removeItem('auth_token');
+  };
+
+  // Função para fazer requisições autenticadas
+  const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+    const token = getToken();
+    if (!token) {
+      throw new Error('Token não encontrado');
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        // Token inválido, fazer logout
+        removeToken();
+        setAuthState({
+          user: null,
+          session: null,
+          profile: null,
+          loading: false
+        });
+        throw new Error('Sessão expirada');
+      }
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Erro na requisição');
+    }
+
+    return response;
+  };
+
   const signIn = async (email: string, password: string) => {
     try {
-      // Clear any existing session first
-      await supabase.auth.signOut({ scope: 'global' });
+      // Limpar token existente
+      removeToken();
       
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const response = await fetch(`${getApiUrl()}/api/user_profiles/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          senha: password,
+        }),
       });
 
-      if (error) {
-        console.error('useAuthActions: Sign in error:', error);
-        throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro no login');
       }
+
+      const data = await response.json();
+      
+      // Salvar token
+      saveToken(data.token);
+      
+      // Atualizar estado
+      setAuthState({
+        user: data.user,
+        session: { user: data.user, access_token: data.token },
+        profile: {
+          id: data.user.id,
+          name: data.user.nome,
+          email: data.user.email,
+          role: 'MUSICO' as const,
+          setor: null,
+          instrumento: null,
+          telefone: null,
+          instituicao: null,
+          avatar_url: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        loading: false
+      });
       
       return data;
-    } catch (error) {
+    } catch (error: any) {
       console.error('useAuthActions: Sign in failed:', error);
       throw error;
     }
   };
 
-  const signUp = async (email: string, password: string, name: string) => {
+  const signUp = async (email: string, password: string, extra: any) => {
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name,
-          },
+      const response = await fetch(`${getApiUrl()}/api/usuarios/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          nome: extra.name,
+          email,
+          senha: password,
+          funcao: extra.funcao,
+          instrumento: extra.instrumento,
+          instituicao: extra.instituicao,
+          setor: extra.setor
+        }),
       });
 
-      if (error) {
-        console.error('useAuthActions: Sign up error:', error);
-        throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro no cadastro');
       }
-      
-      return data;
-    } catch (error) {
+
+      // Não fazer login automático após cadastro
+      // Apenas exibir mensagem para o usuário checar o e-mail
+      return await response.json();
+    } catch (error: any) {
       console.error('useAuthActions: Sign up failed:', error);
       throw error;
     }
@@ -53,22 +142,19 @@ export const useAuthActions = (
 
   const signOut = async () => {
     try {
-      const { error } = await supabase.auth.signOut({ scope: 'global' });
-      if (error) {
-        console.error('useAuthActions: Sign out error:', error);
-        throw error;
-      }
+      removeToken();
       
-      // Clear local state immediately
+      // Limpar estado local imediatamente
       setAuthState({
         user: null,
         session: null,
         profile: null,
         loading: false
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('useAuthActions: Sign out failed:', error);
-      // Clear state even if signOut fails
+      // Limpar estado mesmo se signOut falhar
+      removeToken();
       setAuthState({
         user: null,
         session: null,
@@ -86,64 +172,31 @@ export const useAuthActions = (
     }
 
     try {
-      // Try to get existing profile first
-      const { data: existingProfile } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', authState.user.id)
-        .maybeSingle();
+      const response = await authenticatedFetch(`${getApiUrl()}/api/usuarios/${authState.user.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          nome: updates.name || updates.nome,
+          email: updates.email,
+        }),
+      });
 
-      let result;
-
-      if (!existingProfile) {
-        // Create new profile
-        const newProfile = {
-          id: authState.user.id,
-          name: updates.name || authState.user.user_metadata?.name || 'Usuário',
-          email: authState.user.email || '',
-          role: 'MUSICO' as const,
-          setor: updates.setor || null,
-          instrumento: updates.instrumento || null,
-          telefone: updates.telefone || null,
-          instituicao: updates.instituicao || null,
-          avatar_url: updates.avatar_url || null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-
-        const { data, error } = await supabase
-          .from('user_profiles')
-          .insert(newProfile)
-          .select()
-          .single();
-
-        if (error) throw error;
-        result = data;
-      } else {
-        // Update existing profile
-        const finalUpdates = {
-          ...updates,
-          updated_at: new Date().toISOString()
-        };
-
-        const { data, error } = await supabase
-          .from('user_profiles')
-          .update(finalUpdates)
-          .eq('id', authState.user.id)
-          .select()
-          .single();
-
-        if (error) throw error;
-        result = data;
-      }
-
+      const updatedUser = await response.json();
+      
+      // Atualizar estado local
       setAuthState(prev => ({
         ...prev,
-        profile: result
+        user: updatedUser,
+        profile: {
+          ...prev.profile!,
+          name: updatedUser.nome,
+          email: updatedUser.email,
+          ...updates,
+          updated_at: new Date().toISOString()
+        }
       }));
 
-      return result;
-    } catch (error) {
+      return updatedUser;
+    } catch (error: any) {
       console.error('useAuthActions: Profile update error:', error);
       throw error;
     }
@@ -165,5 +218,7 @@ export const useAuthActions = (
     updateProfile,
     hasRole,
     canAccessSector,
+    getToken,
+    authenticatedFetch,
   };
 };

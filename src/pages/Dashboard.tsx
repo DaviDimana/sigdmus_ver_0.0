@@ -364,7 +364,7 @@ const Dashboard = () => {
   // Atividades Recentes (últimas 3 de cada tipo)
   const recentPartituras = [...partituras].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 3);
   const recentPerformances = [...performances].sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()).slice(0, 3);
-  const recentUsers = [...users].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 3);
+  const recentUsers = [...users].sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime()).slice(0, 3);
 
   // Próximos Eventos (performances futuras)
   const now = new Date();
@@ -676,9 +676,9 @@ const Dashboard = () => {
                 <Users className="h-4 w-4 text-purple-600" />
                 <div className="flex-1">
                   <p className="text-sm font-medium">Novo usuário registrado</p>
-                    <p className="text-xs text-gray-500">{u.name} - {u.instrumento || ''}</p>
+                    <p className="text-xs text-gray-500">{u.nome} - {u.email}</p>
                   </div>
-                  <span className="text-xs text-gray-400">{new Date(u.created_at).toLocaleString('pt-BR')}</span>
+                  <span className="text-xs text-gray-400">{new Date(u.created_at || '').toLocaleString('pt-BR')}</span>
                 </div>
               ))}
             </div>

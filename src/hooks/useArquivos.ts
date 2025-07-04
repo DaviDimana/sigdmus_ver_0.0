@@ -1,12 +1,66 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import type { Tables, TablesInsert, TablesUpdate } from '@/integrations/supabase/types';
+import { toast } from 'sonner';
+import { getApiUrl } from '@/utils/apiConfig';
 
-export type Arquivo = Tables<'arquivos'>;
-export type ArquivoInsert = TablesInsert<'arquivos'>;
-export type ArquivoUpdate = TablesUpdate<'arquivos'>;
-export type SolicitacaoDownload = Tables<'solicitacoes_download'>;
+export interface Arquivo {
+  id: string;
+  nome: string;
+  tipo: string;
+  tamanho: number;
+  arquivo_url: string;
+  usuario_upload: string;
+  restricao_download: boolean;
+  downloads: number;
+  categoria?: string;
+  obra?: string;
+  partitura_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SolicitacaoDownload {
+  id: string;
+  arquivo_id: string;
+  usuario_solicitante: string;
+  usuario_responsavel: string;
+  mensagem: string;
+  status: 'pendente' | 'aprovada' | 'rejeitada';
+  created_at: string;
+}
+
+// Função para obter o token do localStorage
+const getToken = (): string | null => {
+  return localStorage.getItem('auth_token');
+};
+
+// Função para fazer requisições autenticadas
+const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  const token = getToken();
+  if (!token) {
+    throw new Error('Token não encontrado');
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      // Token inválido, fazer logout
+      localStorage.removeItem('auth_token');
+      throw new Error('Sessão expirada');
+    }
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Erro na requisição');
+  }
+
+  return response;
+};
 
 export const useArquivos = () => {
   const queryClient = useQueryClient();
@@ -15,48 +69,31 @@ export const useArquivos = () => {
     queryKey: ['arquivos'],
     queryFn: async () => {
       console.log('Fetching arquivos...');
-      const { data, error } = await supabase
-        .from('arquivos')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (error) {
-        console.error('Error fetching arquivos:', error);
-        throw error;
-      }
-      
+      const res = await authenticatedFetch(`${getApiUrl()}/api/arquivos`);
+      const data = await res.json();
       console.log('Arquivos fetched:', data);
       return data as Arquivo[];
     },
     keepPreviousData: true,
   });
 
-  useEffect(() => {
-    const channel = supabase
-      .channel('public:arquivos')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'arquivos' },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['arquivos'] });
-        }
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [queryClient]);
-
-  const apiUrl = import.meta.env.VITE_API_URL;
-
   const uploadArquivo = useMutation({
-    mutationFn: async ({ file, metadata }) => {
+    mutationFn: async ({ file, metadata }: { file: File; metadata: any }) => {
       // Upload do arquivo para a API
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('metadata', JSON.stringify(metadata));
 
-      const res = await fetch(`${apiUrl}/api/upload`, {
+      const token = getToken();
+      if (!token) {
+        throw new Error('Token não encontrado');
+      }
+
+      const res = await fetch(`${getApiUrl()}/api/upload`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
         body: formData,
       });
 
@@ -65,36 +102,15 @@ export const useArquivos = () => {
         throw new Error(err.error || 'Erro no upload');
       }
 
-      const { url } = await res.json();
-
-      // Obter usuário atual (continua pelo Supabase Auth)
-      const { data: { user } } = await supabase.auth.getUser();
-
-      // Criar entrada no banco de dados (continua igual)
-      const arquivoData = {
-        ...metadata,
-        nome: file.name,
-        tipo: file.type,
-        tamanho: file.size,
-        arquivo_url: url, // agora é a URL da sua API local
-        usuario_upload: user?.id,
-        restricao_download: metadata.restricao_download || false,
-      };
-
-      const { data, error } = await supabase
-        .from('arquivos')
-        .insert(arquivoData)
-        .select()
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
+      const data = await res.json();
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['arquivos'] });
+      toast.success('Arquivo enviado com sucesso!');
+    },
+    onError: (error: any) => {
+      toast.error(`Erro ao enviar arquivo: ${error.message}`);
     },
   });
 
@@ -102,27 +118,23 @@ export const useArquivos = () => {
     mutationFn: async ({ arquivo, mensagem }: { arquivo: Arquivo; mensagem?: string }) => {
       console.log('Solicitando autorização para arquivo:', arquivo.id);
       
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Usuário não autenticado');
-
-      const { data, error } = await supabase
-        .from('solicitacoes_download')
-        .insert({
+      const res = await authenticatedFetch(`${getApiUrl()}/api/solicitacoes-download`, {
+        method: 'POST',
+        body: JSON.stringify({
           arquivo_id: arquivo.id,
-          usuario_solicitante: user.id,
-          usuario_responsavel: arquivo.usuario_upload!,
           mensagem: mensagem || `Solicitação de download para: ${arquivo.nome}`,
-        })
-        .select()
-        .single();
+        }),
+      });
       
-      if (error) {
-        console.error('Error creating download request:', error);
-        throw error;
-      }
-      
+      const data = await res.json();
       console.log('Download request created:', data);
       return data;
+    },
+    onSuccess: () => {
+      toast.success('Solicitação de autorização enviada com sucesso!');
+    },
+    onError: (error: any) => {
+      toast.error(`Erro ao solicitar autorização: ${error.message}`);
     },
   });
 
@@ -130,29 +142,21 @@ export const useArquivos = () => {
     mutationFn: async (arquivo: Arquivo) => {
       console.log('Downloading arquivo:', arquivo.nome);
       
-      const { data: { user } } = await supabase.auth.getUser();
-      
       // Verificar se o arquivo tem restrição de download
-      if (arquivo.restricao_download && arquivo.usuario_upload !== user?.id) {
+      if (arquivo.restricao_download) {
         // Verificar se existe autorização aprovada
-        const { data: autorizacao } = await supabase
-          .from('solicitacoes_download')
-          .select('*')
-          .eq('arquivo_id', arquivo.id)
-          .eq('usuario_solicitante', user?.id)
-          .eq('status', 'aprovada')
-          .single();
+        const res = await authenticatedFetch(`${getApiUrl()}/api/solicitacoes-download/verificar/${arquivo.id}`);
+        const autorizacao = await res.json();
         
-        if (!autorizacao) {
+        if (!autorizacao || autorizacao.status !== 'aprovada') {
           throw new Error('AUTHORIZATION_REQUIRED');
         }
       }
       
       // Incrementar contador de downloads
-      await supabase
-        .from('arquivos')
-        .update({ downloads: (arquivo.downloads || 0) + 1 })
-        .eq('id', arquivo.id);
+      await authenticatedFetch(`${getApiUrl()}/api/arquivos/${arquivo.id}/download`, {
+        method: 'POST',
+      });
       
       // Fazer download do arquivo
       if (arquivo.arquivo_url) {
@@ -168,6 +172,14 @@ export const useArquivos = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['arquivos'] });
+      toast.success('Arquivo baixado com sucesso!');
+    },
+    onError: (error: any) => {
+      if (error.message === 'AUTHORIZATION_REQUIRED') {
+        toast.error('Autorização necessária para baixar este arquivo');
+      } else {
+        toast.error(`Erro ao baixar arquivo: ${error.message}`);
+      }
     },
   });
 
@@ -175,31 +187,20 @@ export const useArquivos = () => {
     mutationFn: async (arquivo: Arquivo) => {
       console.log('Deleting arquivo:', arquivo.id);
       
-      // Deletar arquivo do storage se existir
-      if (arquivo.arquivo_url) {
-        const fileName = arquivo.arquivo_url.split('/').pop();
-        if (fileName) {
-          await supabase.storage
-            .from('arquivos')
-            .remove([fileName]);
-        }
-      }
+      const res = await authenticatedFetch(`${getApiUrl()}/api/arquivos/${arquivo.id}`, {
+        method: 'DELETE',
+      });
       
-      // Deletar entrada do banco de dados
-      const { error } = await supabase
-        .from('arquivos')
-        .delete()
-        .eq('id', arquivo.id);
-      
-      if (error) {
-        console.error('Error deleting arquivo:', error);
-        throw error;
-      }
-      
+      const data = await res.json();
       console.log('Arquivo deleted:', arquivo.id);
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['arquivos'] });
+      toast.success('Arquivo deletado com sucesso!');
+    },
+    onError: (error: any) => {
+      toast.error(`Erro ao deletar arquivo: ${error.message}`);
     },
   });
 

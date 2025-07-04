@@ -5,11 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
+import { getApiUrl } from '@/utils/apiConfig';
 import { Camera } from 'lucide-react';
 
 const ProfileSettings: React.FC = () => {
-  const { user, profile, loading, setProfile, fetchProfile } = useAuth();
+  const { user, profile, loading, setProfile, fetchProfile, authenticatedFetch } = useAuth();
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
@@ -50,78 +50,36 @@ const ProfileSettings: React.FC = () => {
         return;
       }
 
-      const fileExt = file.name.split('.').pop();
-      // Usar o ID do usuário como nome do arquivo para seguir as políticas RLS
-      const fileName = `${user.id}.${fileExt}`;
-      const filePath = `${user.id}/${fileName}`;
+      // Criar FormData para upload
+      const formData = new FormData();
+      formData.append('avatar', file);
+      formData.append('userId', user.id);
 
-      console.log('Iniciando upload do avatar:', { filePath, userId: user.id });
+      // Fazer upload do avatar
+      const response = await fetch(`${getApiUrl()}/api/avatar`, {
+        method: 'POST',
+        body: formData,
+      });
 
-      // Upload da imagem com upsert para sobrescrever se existir
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, file, { upsert: true });
-
-      if (uploadError) {
-        console.error('Erro no upload do arquivo:', uploadError);
-        throw uploadError;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro no upload do avatar');
       }
 
-      console.log('Upload do arquivo concluído, obtendo URL pública');
+      const { avatarUrl } = await response.json();
 
-      // Obter URL pública
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
-
-      console.log('URL pública obtida:', publicUrl);
-
-      // Verificar se o perfil existe antes de tentar atualizar
-      const { data: existingProfile, error: checkError } = await supabase
-        .from('user_profiles')
-        .select('id')
-        .eq('id', user.id)
-        .single();
-
-      if (checkError && checkError.code !== 'PGRST116') {
-        console.error('Erro ao verificar perfil existente:', checkError);
-        throw checkError;
-      }
-
-      let updateError;
-      if (existingProfile) {
-        // Atualizar perfil existente
-        const { error } = await supabase
-        .from('user_profiles')
-        .update({
-          name: formData.name.trim(),
+      // Atualizar perfil com a nova URL do avatar
+      const updateResponse = await authenticatedFetch(`${getApiUrl()}/api/usuarios/${user.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          nome: formData.name.trim(),
           email: formData.email.trim(),
-          // role: sempre maiúsculo, se existir no profile
-          ...(profile?.role_user_role && { role: profile.role_user_role.toUpperCase() })
-        })
-          .eq('id', user.id);
-        updateError = error;
-      } else {
-        // Criar novo perfil se não existir
-        const { error } = await supabase
-          .from('user_profiles')
-          .insert({
-            id: user.id,
-            name: user.user_metadata?.name || user.email?.split('@')[0] || 'Usuário',
-            email: user.email || '',
-            avatar_url: publicUrl,
-            // role: sempre maiúsculo, se existir no profile, senão 'MUSICO'
-            role: (profile?.role_user_role || 'MUSICO').toUpperCase()
-          });
-        updateError = error;
-      }
+        }),
+      });
 
-      if (updateError) {
-        console.error('Erro ao atualizar o perfil com a URL do avatar:', updateError);
-        throw updateError;
+      if (!updateResponse.ok) {
+        throw new Error('Erro ao atualizar perfil');
       }
-
-      console.log('Perfil atualizado com a URL do avatar, buscando perfil atualizado');
 
       // Buscar o perfil atualizado
       await fetchProfile(user.id);
@@ -181,50 +139,21 @@ const ProfileSettings: React.FC = () => {
         email: formData.email.trim() 
       });
 
-      // Verificar se o perfil existe antes de tentar atualizar
-      const { data: existingProfile, error: checkError } = await supabase
-        .from('user_profiles')
-        .select('id')
-        .eq('id', user.id)
-        .single();
-
-      if (checkError && checkError.code !== 'PGRST116') {
-        console.error('Erro ao verificar perfil existente:', checkError);
-        throw checkError;
-      }
-
-      let updateError;
-      if (existingProfile) {
-        // Atualizar perfil existente
-      const { error } = await supabase
-        .from('user_profiles')
-        .update({
-          name: formData.name.trim(),
+      // Atualizar perfil via API REST
+      const response = await authenticatedFetch(`${getApiUrl()}/api/usuarios/${user.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          nome: formData.name.trim(),
           email: formData.email.trim(),
-          // role: sempre maiúsculo, se existir no profile
-          ...(profile?.role_user_role && { role: profile.role_user_role.toUpperCase() })
-        })
-          .eq('id', user.id);
-        updateError = error;
-      } else {
-        // Criar novo perfil se não existir
-        const { error } = await supabase
-          .from('user_profiles')
-          .insert({
-            id: user.id,
-            name: user.user_metadata?.name || user.email?.split('@')[0] || 'Usuário',
-            email: user.email || '',
-            avatar_url: publicUrl,
-            // role: sempre maiúsculo, se existir no profile, senão 'MUSICO'
-            role: (profile?.role_user_role || 'MUSICO').toUpperCase()
-          });
-        updateError = error;
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao atualizar perfil');
       }
 
-      if (updateError) {
-        console.error('Erro ao atualizar o perfil:', updateError);
-        throw updateError;
-      }
+      const updatedUser = await response.json();
 
       console.log('Perfil atualizado, buscando perfil atualizado');
 

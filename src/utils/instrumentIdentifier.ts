@@ -103,7 +103,6 @@ export function identifyInstrument(fileName: string): string | null {
     'timpani': 'TIMPANOS',
     'timp': 'TIMPANOS',
     'timpanos': 'TIMPANOS',
-    'timpanos': 'TIMPANOS',
     'percussion': 'PERCUSSAO',
     'perc': 'PERCUSSAO',
     'percussao': 'PERCUSSAO',

@@ -7,24 +7,29 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { getApiUrl } from '@/utils/apiConfig';
 import { Edit2, Search } from 'lucide-react';
-import type { Tables } from '@/integrations/supabase/types';
 import InstitutionSelector from '@/components/SignupForm/InstitutionSelector';
 import { funcoes, instrumentos as instrumentosList } from '@/components/SignupForm/FunctionInstrumentFields';
 import PersonalInfoFields from '@/components/SignupForm/PersonalInfoFields';
 import SectorSelector from '@/components/SignupForm/SectorSelector';
 import FunctionInstrumentFields from '@/components/SignupForm/FunctionInstrumentFields';
 
-type UserProfile = Tables<'user_profiles'>;
+interface User {
+  id: string;
+  nome: string;
+  email: string;
+  role: string;
+  confirmado: boolean;
+}
 
 const UserManagement: React.FC = () => {
-  const { profile } = useAuth();
+  const { profile, authenticatedFetch } = useAuth();
   const { toast } = useToast();
-  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [instituicoes, setInstituicoes] = useState<{ id: string; nome: string }[]>([]);
 
@@ -41,22 +46,31 @@ const UserManagement: React.FC = () => {
   ];
 
   useEffect(() => {
-      fetchUsers();
+    fetchUsers();
     // Buscar instituições para o seletor
     const fetchInstituicoes = async () => {
-      const { data, error } = await supabase.from('instituicoes').select('*');
-      if (!error && data) setInstituicoes(data);
+      try {
+        // Por enquanto, vamos usar dados mockados
+        const mockInstituicoes = [
+          { id: '1', nome: 'Conservatório de Música' },
+          { id: '2', nome: 'Orquestra Sinfônica' },
+          { id: '3', nome: 'Escola de Música' }
+        ];
+        setInstituicoes(mockInstituicoes);
+      } catch (error) {
+        console.error('Erro ao buscar instituições:', error);
+      }
     };
     fetchInstituicoes();
   }, [profile]);
 
   const fetchUsers = async () => {
     try {
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .order('name');
-      if (error) throw error;
+      const response = await authenticatedFetch(`${getApiUrl()}/api/usuarios`);
+      if (!response.ok) {
+        throw new Error('Erro ao buscar usuários');
+      }
+      const data = await response.json();
       setUsers(data || []);
     } catch (error) {
       console.error('Erro ao buscar usuários:', error);
@@ -70,14 +84,19 @@ const UserManagement: React.FC = () => {
     }
   };
 
-  const handleUpdateUser = async (updates: Partial<UserProfile>) => {
+  const handleUpdateUser = async (updates: Partial<User>) => {
     if (!selectedUser) return;
     try {
-      const { error } = await supabase
-        .from('user_profiles')
-        .update(updates)
-        .eq('id', selectedUser.id);
-      if (error) throw error;
+      const response = await authenticatedFetch(`${getApiUrl()}/api/usuarios/${selectedUser.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao atualizar usuário');
+      }
+
       await fetchUsers();
       setIsDialogOpen(false);
       setSelectedUser(null);
@@ -85,18 +104,44 @@ const UserManagement: React.FC = () => {
         title: "Usuário atualizado",
         description: "As informações do usuário foram atualizadas com sucesso.",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao atualizar usuário:', error);
       toast({
         title: "Erro",
-        description: "Erro ao atualizar usuário. Tente novamente.",
+        description: error.message || "Erro ao atualizar usuário. Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      const response = await authenticatedFetch(`${getApiUrl()}/api/usuarios/${userId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao deletar usuário');
+      }
+
+      await fetchUsers();
+      toast({
+        title: "Usuário deletado",
+        description: "O usuário foi deletado com sucesso.",
+      });
+    } catch (error: any) {
+      console.error('Erro ao deletar usuário:', error);
+      toast({
+        title: "Erro",
+        description: error.message || "Erro ao deletar usuário. Tente novamente.",
         variant: "destructive",
       });
     }
   };
 
   const filteredUsers = users.filter(user =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -125,36 +170,26 @@ const UserManagement: React.FC = () => {
             <div className="flex items-center gap-4">
               {/* Avatar com iniciais */}
               <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-lg border-2 border-blue-200">
-                {user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2)}
+                {user.nome.split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2)}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-lg text-gray-900 truncate">{user.name}</span>
-                  {/* Badge de role */}
-                  {user.role_user_role && (
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${user.role_user_role === 'ADMIN' ? 'bg-red-100 text-red-600' : user.role_user_role === 'GERENTE' ? 'bg-blue-100 text-blue-700' : user.role_user_role === 'ARQUIVISTA' ? 'bg-gray-200 text-gray-700' : 'bg-green-100 text-green-700'}`}>
-                      {user.role_user_role}
-                    </span>
-                  )}
+                  <span className="font-semibold text-lg text-gray-900 truncate">{user.nome}</span>
+                  {/* Badge de role - por enquanto fixo como MUSICO */}
+                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">
+                    {user.role === 'ADMIN' ? 'Administrador' : 'Usuário'}
+                  </span>
                 </div>
                 <div className="text-gray-500 text-sm truncate">{user.email}</div>
-                {user.telefone && (
-                  <div className="text-gray-500 text-sm truncate">{user.telefone}</div>
-                )}
               </div>
             </div>
             <div className="flex items-center gap-2 mt-2">
-              {/* Badge de status */}
-              {user.status && (
-                <span className={`px-2 py-0.5 rounded text-xs font-semibold border ${user.status === 'ativo' ? 'bg-green-50 text-green-700 border-green-200' : user.status === 'bloqueado' ? 'bg-red-50 text-red-600 border-red-200' : 'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>
-                  {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
-                </span>
-              )}
-              {/* Setor e Instrumento */}
-              {user.setor && <span className="text-xs text-gray-400">{user.setor.replace('ACERVO_', '')}</span>}
-              {user.instrumento && <span className="text-xs text-gray-400">{user.instrumento}</span>}
+              {/* Badge de status - por enquanto fixo como ativo */}
+              <span className="px-2 py-0.5 rounded text-xs font-semibold border bg-green-50 text-green-700 border-green-200">
+                {user.confirmado ? 'Sim' : 'Não'}
+              </span>
             </div>
-            <div className="flex justify-end mt-4">
+            <div className="flex justify-end mt-4 space-x-2">
               <Dialog open={isDialogOpen && selectedUser?.id === user.id} onOpenChange={setIsDialogOpen}>
                 <DialogTrigger asChild>
                   <Button
@@ -171,7 +206,7 @@ const UserManagement: React.FC = () => {
                 <DialogContent className="sm:max-w-md">
                   <DialogHeader>
                     <DialogTitle>Gerenciamento de Usuário</DialogTitle>
-                    <DialogDescription>Adicione, edite ou remova usuários do sistema.</DialogDescription>
+                    <DialogDescription>Edite as informações do usuário.</DialogDescription>
                   </DialogHeader>
                   {selectedUser && (
                     <UserEditForm
@@ -181,6 +216,7 @@ const UserManagement: React.FC = () => {
                       instrumentos={instrumentos}
                       instituicoes={instituicoes}
                       onSave={handleUpdateUser}
+                      onDelete={() => handleDeleteUser(selectedUser.id)}
                       onCancel={() => {
                         setIsDialogOpen(false);
                         setSelectedUser(null);
@@ -209,12 +245,13 @@ const setoresFixos = [
 ];
 
 interface UserEditFormProps {
-  user: UserProfile;
+  user: User;
   roles: string[];
   setores: string[];
   instrumentos: string[];
   instituicoes: { id: string; nome: string }[];
-  onSave: (updates: Partial<UserProfile>) => void;
+  onSave: (updates: Partial<User>) => void;
+  onDelete: () => void;
   onCancel: () => void;
 }
 
@@ -225,35 +262,38 @@ const UserEditForm: React.FC<UserEditFormProps> = ({
   instrumentos,
   instituicoes,
   onSave,
+  onDelete,
   onCancel
 }) => {
   const [formData, setFormData] = useState({
-    name: user.name,
+    name: user.nome,
     email: user.email,
-    telefone: user.telefone || '',
-    instituicao: user.instituicao || '',
-    setor: user.setor || '',
-    instrumento: user.instrumento || '',
-    status: user.status || '',
-    funcao: user.role_user_role || '',
+    telefone: '',
+    instituicao: '',
+    setor: '',
+    instrumento: '',
+    status: 'ativo',
+    funcao: 'MUSICO',
   });
   const [instituicoesState, setInstituicoesState] = useState<{ id: string; nome: string }[]>(instituicoes);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { setInstituicoesState(instituicoes); }, [instituicoes]);
+
+  useEffect(() => { 
+    setInstituicoesState(instituicoes); 
+  }, [instituicoes]);
+
   const handleInstitutionAdded = async () => {
-    const { data, error } = await supabase.from('instituicoes').select('*');
-    if (!error && data) setInstituicoesState(data);
+    // Por enquanto, não implementado
+    console.log('Instituição adicionada');
   };
+
   const validate = () => {
     if (!formData.name.trim()) return 'Nome é obrigatório';
     if (!formData.email.trim()) return 'Email é obrigatório';
-    if (!formData.telefone.trim()) return 'Telefone é obrigatório';
-    if (!formData.instituicao.trim()) return 'Instituição é obrigatória';
-    if (!formData.setor.trim()) return 'Setor é obrigatório';
-    if (!formData.status.trim()) return 'Status é obrigatório';
     return null;
   };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -264,26 +304,20 @@ const UserEditForm: React.FC<UserEditFormProps> = ({
     }
     setSaving(true);
     try {
-      const updates: Partial<UserProfile> = {
-        name: formData.name,
+      const updates: Partial<User> = {
+        nome: formData.name,
         email: formData.email,
-        telefone: formData.telefone,
-        status: formData.status,
-        role_user_role: (formData.funcao || 'MUSICO').toUpperCase(),
-        updated_at: new Date().toISOString(),
       };
-      // Filtrar campos undefined ou vazios
-      const filteredUpdates = Object.fromEntries(
-        Object.entries(updates).filter(([_, v]) => v !== undefined && v !== null && v !== '')
-      );
-      console.log('Enviando updates para Supabase:', filteredUpdates);
-      await onSave(filteredUpdates);
+      
+      console.log('Enviando updates para API:', updates);
+      await onSave(updates);
     } catch (err) {
       setError('Erro ao salvar. Tente novamente.');
     } finally {
       setSaving(false);
     }
   };
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <PersonalInfoFields formData={formData} setFormData={updater => setFormData(prev => ({ ...prev, ...typeof updater === 'function' ? updater(prev) : updater }))} showPasswordFields={false} />
@@ -316,7 +350,12 @@ const UserEditForm: React.FC<UserEditFormProps> = ({
       </div>
       {error && <div className="text-red-600 text-sm font-semibold">{error}</div>}
       <div className="flex justify-end space-x-2">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>Cancelar</Button>
+        <Button type="button" variant="destructive" onClick={onDelete} disabled={saving}>
+          Deletar
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>
+          Cancelar
+        </Button>
         <Button type="submit" disabled={saving}>
           {saving ? (
             <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span> Salvando...</span>

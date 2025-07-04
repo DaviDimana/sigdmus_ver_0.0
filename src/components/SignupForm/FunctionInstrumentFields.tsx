@@ -9,16 +9,8 @@ interface FunctionInstrumentFieldsProps {
     instrumento: string;
   };
   setFormData: (updater: (prev: any) => any) => void;
+  funcoes: Array<{ value: string; label: string }>;
 }
-
-export const funcoes = [
-  { value: 'MUSICO', label: 'Músico' },
-  { value: 'ESTUDANTE', label: 'Estudante' },
-  { value: 'PROFESSOR', label: 'Professor' },
-  { value: 'MAESTRO', label: 'Maestro' },
-  { value: 'ARQUIVISTA', label: 'Arquivista' },
-  { value: 'GERENTE', label: 'Gerente' }
-];
 
 export const instrumentos = [
   { value: 'FLAUTA', label: 'Flauta' },
@@ -43,7 +35,7 @@ export const instrumentos = [
   { value: 'BAIXO', label: 'Baixo' }
 ];
 
-const FunctionInstrumentFields: React.FC<FunctionInstrumentFieldsProps> = ({ formData, setFormData }) => {
+const FunctionInstrumentFields: React.FC<FunctionInstrumentFieldsProps> = ({ formData, setFormData, funcoes }) => {
   const needsInstrument = ['MUSICO', 'ESTUDANTE', 'PROFESSOR'].includes(formData.funcao);
   const cannotHaveInstrument = ['MAESTRO', 'ARQUIVISTA', 'GERENTE'].includes(formData.funcao);
 

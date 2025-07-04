@@ -14,7 +14,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/hooks/useAuth';
-import { debugSupabaseStorage, testUpload } from '@/utils/debugSupabase';
 
 const Performances = () => {
   const navigate = useNavigate();

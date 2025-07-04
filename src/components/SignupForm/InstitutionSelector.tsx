@@ -1,12 +1,11 @@
-
 import React, { useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
+import { getApiUrl } from '@/utils/apiConfig';
 
 interface InstitutionSelectorProps {
   value: string;
@@ -14,6 +13,40 @@ interface InstitutionSelectorProps {
   instituicoes: Array<{ id: string; nome: string }>;
   onInstitutionAdded: () => void;
 }
+
+// Função para obter o token do localStorage
+const getToken = (): string | null => {
+  return localStorage.getItem('auth_token');
+};
+
+// Função para fazer requisições autenticadas
+const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  const token = getToken();
+  if (!token) {
+    throw new Error('Token não encontrado');
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      // Token inválido, fazer logout
+      localStorage.removeItem('auth_token');
+      throw new Error('Sessão expirada');
+    }
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Erro na requisição');
+  }
+
+  return response;
+};
 
 const InstitutionSelector: React.FC<InstitutionSelectorProps> = ({ 
   value, 
@@ -23,7 +56,6 @@ const InstitutionSelector: React.FC<InstitutionSelectorProps> = ({
 }) => {
   const [newInstituicao, setNewInstituicao] = useState('');
   const [isAdding, setIsAdding] = useState(false);
-  const { toast } = useToast();
 
   const handleAddInstituicao = async () => {
     if (!newInstituicao.trim()) return;
@@ -31,50 +63,29 @@ const InstitutionSelector: React.FC<InstitutionSelectorProps> = ({
     setIsAdding(true);
     try {
       console.log('Tentando adicionar instituição:', newInstituicao.trim());
-      
-      const { data, error } = await supabase
-        .from('instituicoes')
-        .insert({ nome: newInstituicao.trim() })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Erro ao adicionar instituição:', error);
-        
-        // Check for duplicate error
-        if (error.code === '23505') {
-          toast({
-            title: "Erro",
-            description: "Esta instituição já existe.",
-            variant: "destructive",
-          });
-        } else {
-          toast({
-            title: "Erro",
-            description: error.message || "Erro ao adicionar instituição.",
-            variant: "destructive",
-          });
-        }
-        return;
+      // Usar fetch simples, sem token
+      const res = await fetch(`${getApiUrl()}/api/instituicoes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome: newInstituicao.trim() }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Erro na requisição');
       }
-
+      const data = await res.json();
       console.log('Instituição adicionada:', data);
-      
       onInstitutionAdded();
       onChange(newInstituicao.trim());
       setNewInstituicao('');
-      
-      toast({
-        title: "Instituição adicionada",
-        description: "Nova instituição criada com sucesso.",
-      });
+      toast.success('Instituição adicionada com sucesso!');
     } catch (error: any) {
-      console.error('Erro inesperado ao adicionar instituição:', error);
-      toast({
-        title: "Erro",
-        description: "Erro inesperado ao adicionar instituição.",
-        variant: "destructive",
-      });
+      console.error('Erro ao adicionar instituição:', error);
+      if (error.message.includes('duplicate') || error.message.includes('já existe')) {
+        toast.error('Esta instituição já existe.');
+      } else {
+        toast.error(`Erro ao adicionar instituição: ${error.message}`);
+      }
     } finally {
       setIsAdding(false);
     }

@@ -1,6 +1,5 @@
-
 import jsPDF from 'jspdf';
-import { supabase } from '@/integrations/supabase/client';
+import { getApiUrl } from '@/utils/apiConfig';
 
 interface GenerateLabelsParams {
   type: 'partituras' | 'performances';
@@ -36,20 +35,47 @@ const fieldLabels = {
   }
 };
 
+// Função para obter o token do localStorage
+const getToken = (): string | null => {
+  return localStorage.getItem('auth_token');
+};
+
+// Função para fazer requisições autenticadas
+const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  const token = getToken();
+  if (!token) {
+    throw new Error('Token não encontrado');
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      // Token inválido, fazer logout
+      localStorage.removeItem('auth_token');
+      throw new Error('Sessão expirada');
+    }
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Erro na requisição');
+  }
+
+  return response;
+};
+
 export const generateLabels = async ({ type, fields }: GenerateLabelsParams) => {
   console.log('Generating labels:', { type, fields });
   
   try {
-    // Buscar dados do banco
-    const { data, error } = await supabase
-      .from(type)
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (error) {
-      console.error('Error fetching data for labels:', error);
-      throw error;
-    }
+    // Buscar dados da API REST
+    const res = await authenticatedFetch(`${getApiUrl()}/api/${type}`);
+    const data = await res.json();
     
     console.log('Data fetched for labels:', data);
     
@@ -67,7 +93,7 @@ export const generateLabels = async ({ type, fields }: GenerateLabelsParams) => 
     
     let currentLabel = 0;
     
-    data.forEach((item) => {
+    data.forEach((item: any) => {
       if (currentLabel >= labelsPerRow * labelsPerColumn) {
         doc.addPage();
         currentLabel = 0;

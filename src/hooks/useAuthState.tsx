@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { getApiUrl } from '@/utils/apiConfig';
 import type { AuthState } from '@/types/auth';
+
+export interface User {
+  id: string;
+  nome: string;
+  email: string;
+  role: string;
+  confirmado: boolean;
+}
 
 export const useAuthState = () => {
   const [authState, setAuthState] = useState<AuthState>({
@@ -10,18 +18,66 @@ export const useAuthState = () => {
     loading: true
   });
 
+  // Função para obter o token do localStorage
+  const getToken = (): string | null => {
+    return localStorage.getItem('auth_token');
+  };
+
+  // Função para verificar se o token é válido
+  const isTokenValid = (token: string): boolean => {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return payload.exp * 1000 > Date.now();
+    } catch {
+      return false;
+    }
+  };
+
+  // Função para fazer requisições autenticadas
+  const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+    const token = getToken();
+    if (!token) {
+      throw new Error('Token não encontrado');
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        // Token inválido, fazer logout
+        localStorage.removeItem('auth_token');
+        setAuthState({
+          user: null,
+          session: null,
+          profile: null,
+          loading: false
+        });
+        throw new Error('Sessão expirada');
+      }
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Erro na requisição');
+    }
+
+    return response;
+  };
+
   useEffect(() => {
     let mounted = true;
 
-    // Initialize auth state
+    // Inicializar estado de autenticação
     const initializeAuth = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const token = getToken();
         
-        if (!mounted) return;
-
-        if (error) {
-          console.error('useAuthState: Session error:', error);
+        if (!token || !isTokenValid(token)) {
+          if (!mounted) return;
           setAuthState({
             user: null,
             session: null,
@@ -31,48 +87,54 @@ export const useAuthState = () => {
           return;
         }
 
-        if (session?.user) {
-          // Set initial auth state with session
+        // Decodificar o token para obter informações do usuário
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const userId = payload.id;
+        
+        if (!mounted) return;
+
+        // Definir estado inicial com sessão
+        setAuthState(prev => ({
+          ...prev,
+          session: { user: { id: userId, email: payload.email }, access_token: token },
+          user: { id: userId, email: payload.email, nome: payload.nome || 'Usuário', role: payload.role, confirmado: payload.confirmado },
+          loading: true // Manter loading enquanto busca perfil
+        }));
+
+        // Buscar perfil do usuário
+        try {
+          const response = await authenticatedFetch(`${getApiUrl()}/api/usuarios/${userId}`);
+          const userData = await response.json();
+
+          if (!mounted) return;
+
           setAuthState(prev => ({
             ...prev,
-            session,
-            user: session.user,
-            loading: true // Keep loading while fetching profile
-          }));
-
-          // Fetch user profile
-          try {
-            const { data: profile } = await supabase
-              .from('user_profiles')
-              .select('*')
-              .eq('id', session.user.id)
-              .maybeSingle();
-
-            if (!mounted) return;
-
-            setAuthState(prev => ({
-              ...prev,
-              profile: profile || null,
-              loading: false
-            }));
-          } catch (profileError) {
-            console.error('useAuthState: Profile fetch error:', profileError);
-            if (!mounted) return;
-            setAuthState(prev => ({ 
-              ...prev, 
-              profile: null,
-              loading: false 
-            }));
-          }
-        } else {
-          setAuthState({
-            user: null,
-            session: null,
-            profile: null,
+            profile: {
+              id: userData.id,
+              name: userData.nome,
+              email: userData.email,
+              role: 'MUSICO' as const,
+              setor: null,
+              instrumento: null,
+              telefone: null,
+              instituicao: null,
+              avatar_url: null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            },
             loading: false
-          });
+          }));
+        } catch (profileError: any) {
+          console.error('useAuthState: Profile fetch error:', profileError);
+          if (!mounted) return;
+          setAuthState(prev => ({ 
+            ...prev, 
+            profile: null,
+            loading: false 
+          }));
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('useAuthState: Initialization error:', error);
         if (!mounted) return;
         setAuthState({
@@ -84,63 +146,11 @@ export const useAuthState = () => {
       }
     };
 
-    // Set up auth state change listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!mounted) return;
-
-        if (event === 'SIGNED_OUT' || !session) {
-          setAuthState({
-            user: null,
-            session: null,
-            profile: null,
-            loading: false
-          });
-          return;
-        }
-
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-          setAuthState(prev => ({
-            ...prev,
-            session,
-            user: session.user,
-            loading: true
-          }));
-
-          // Fetch profile in a timeout to avoid deadlocks
-          setTimeout(async () => {
-            if (!mounted) return;
-            
-            try {
-              const { data: profile } = await supabase
-                .from('user_profiles')
-                .select('*')
-                .eq('id', session.user.id)
-                .maybeSingle();
-
-              if (!mounted) return;
-
-              setAuthState(prev => ({
-                ...prev,
-                profile: profile || null,
-                loading: false
-              }));
-            } catch (error) {
-              console.error('useAuthState: Profile fetch error in auth change:', error);
-              if (!mounted) return;
-              setAuthState(prev => ({ ...prev, loading: false }));
-            }
-          }, 100);
-        }
-      }
-    );
-
-    // Start initialization
+    // Iniciar inicialização
     initializeAuth();
 
     return () => {
       mounted = false;
-      subscription.unsubscribe();
     };
   }, []);
 

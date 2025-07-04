@@ -4,10 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
+import { getApiUrl } from '@/utils/apiConfig';
 
 const PasswordSettings: React.FC = () => {
-  const { user } = useAuth();
+  const { user, authenticatedFetch } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     currentPassword: '',
@@ -31,12 +31,18 @@ const PasswordSettings: React.FC = () => {
         return;
       }
 
-      // Atualizar senha
-      const { error } = await supabase.auth.updateUser({
-        password: formData.newPassword
+      // Atualizar senha via API REST
+      const response = await authenticatedFetch(`${getApiUrl()}/api/usuarios/${user?.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          senha: formData.newPassword,
+        }),
       });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao atualizar senha');
+      }
 
       toast.success('Senha atualizada com sucesso!');
       setFormData({

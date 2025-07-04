@@ -1,107 +1,120 @@
-import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import type { Tables, TablesInsert, TablesUpdate } from '@/integrations/supabase/types';
+import { toast } from 'sonner';
+import { getApiUrl } from '@/utils/apiConfig';
 
-export type Performance = Tables<'performances'>;
-export type PerformanceInsert = TablesInsert<'performances'>;
-export type PerformanceUpdate = TablesUpdate<'performances'>;
+export type Performance = {
+  id: string;
+  titulo: string;
+  data: string;
+  local: string;
+  descricao?: string;
+  obra_id?: string;
+  participantes?: any[];
+  pdf_urls?: any[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type PerformanceInsert = Omit<Performance, 'id' | 'created_at' | 'updated_at'>;
+export type PerformanceUpdate = Partial<PerformanceInsert>;
+
+// Função para obter o token do localStorage
+const getToken = (): string | null => {
+  return localStorage.getItem('auth_token');
+};
+
+// Função para fazer requisições autenticadas
+const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  const token = getToken();
+  if (!token) {
+    throw new Error('Token não encontrado');
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      // Token inválido, fazer logout
+      localStorage.removeItem('auth_token');
+      throw new Error('Sessão expirada');
+    }
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Erro na requisição');
+  }
+
+  return response;
+};
 
 export const usePerformances = () => {
   const queryClient = useQueryClient();
 
+  // Listar performances
   const { data: performances = [], isLoading, error } = useQuery({
     queryKey: ['performances'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('performances')
-        .select('*')
-        .order('data', { ascending: false });
-      if (error) throw error;
-      return data || [];
+      const res = await authenticatedFetch(`${getApiUrl()}/api/performances`);
+      return await res.json();
     },
     keepPreviousData: true,
   });
 
-  // Realtime subscription
-  useEffect(() => {
-    const channel = supabase
-      .channel('public:performances')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'performances' },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['performances'] });
-        }
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [queryClient]);
-
+  // Criar performance
   const createPerformance = useMutation({
     mutationFn: async (performance: PerformanceInsert) => {
-      console.log('Creating performance:', performance);
-      const { data, error } = await supabase
-        .from('performances')
-        .insert(performance)
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('Error creating performance:', error);
-        throw error;
-      }
-      
-      console.log('Performance created:', data);
-      return data;
+      const res = await authenticatedFetch(`${getApiUrl()}/api/performances`, {
+        method: 'POST',
+        body: JSON.stringify(performance),
+      });
+      return await res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['performances'] });
+      toast.success('Performance criada com sucesso!');
+    },
+    onError: (error: any) => {
+      toast.error(`Erro ao criar performance: ${error.message}`);
     },
   });
 
+  // Atualizar performance
   const updatePerformance = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: PerformanceUpdate }) => {
-      console.log('Updating performance:', id, updates);
-      const { data, error } = await supabase
-        .from('performances')
-        .update(updates)
-        .eq('id', id)
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('Error updating performance:', error);
-        throw error;
-      }
-      
-      console.log('Performance updated:', data);
-      return data;
+      const res = await authenticatedFetch(`${getApiUrl()}/api/performances/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      });
+      return await res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['performances'] });
+      toast.success('Performance atualizada com sucesso!');
+    },
+    onError: (error: any) => {
+      toast.error(`Erro ao atualizar performance: ${error.message}`);
     },
   });
 
+  // Deletar performance
   const deletePerformance = useMutation({
     mutationFn: async (id: string) => {
-      console.log('Deleting performance:', id);
-      const { error } = await supabase
-        .from('performances')
-        .delete()
-        .eq('id', id);
-      
-      if (error) {
-        console.error('Error deleting performance:', error);
-        throw error;
-      }
-      
-      console.log('Performance deleted:', id);
+      const res = await authenticatedFetch(`${getApiUrl()}/api/performances/${id}`, {
+        method: 'DELETE',
+      });
+      return await res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['performances'] });
+      toast.success('Performance deletada com sucesso!');
+    },
+    onError: (error: any) => {
+      toast.error(`Erro ao deletar performance: ${error.message}`);
     },
   });
 
@@ -119,20 +132,8 @@ export const usePerformance = (id: string) => {
   const { data: performance, isLoading, error } = useQuery({
     queryKey: ['performance', id],
     queryFn: async () => {
-      console.log('Fetching performance:', id);
-      const { data, error } = await supabase
-        .from('performances')
-        .select('*')
-        .eq('id', id)
-        .single();
-      
-      if (error) {
-        console.error('Error fetching performance:', error);
-        throw error;
-      }
-      
-      console.log('Performance fetched:', data);
-      return data as Performance;
+      const res = await authenticatedFetch(`${getApiUrl()}/api/performances/${id}`);
+      return await res.json();
     },
     enabled: !!id,
   });

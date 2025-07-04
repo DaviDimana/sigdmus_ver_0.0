@@ -81,9 +81,15 @@ const Relatorios = () => {
         format: outputFormat
       });
       toast.success('Relatório gerado com sucesso!');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao gerar relatório:', error);
-      toast.error('Erro ao gerar relatório. Tente novamente.');
+      if (error.message === 'Token não encontrado' || error.message === 'Sessão expirada') {
+        toast.error('Sessão expirada. Faça login novamente.');
+        // Redirecionar para login se necessário
+        window.location.href = '/login';
+      } else {
+        toast.error(`Erro ao gerar relatório: ${error.message}`);
+      }
     } finally {
       setIsGenerating(false);
     }
@@ -102,9 +108,15 @@ const Relatorios = () => {
         fields: selectedFields
       });
       toast.success('Etiquetas geradas com sucesso!');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao gerar etiquetas:', error);
-      toast.error('Erro ao gerar etiquetas. Tente novamente.');
+      if (error.message === 'Token não encontrado' || error.message === 'Sessão expirada') {
+        toast.error('Sessão expirada. Faça login novamente.');
+        // Redirecionar para login se necessário
+        window.location.href = '/login';
+      } else {
+        toast.error(`Erro ao gerar etiquetas: ${error.message}`);
+      }
     } finally {
       setIsGenerating(false);
     }

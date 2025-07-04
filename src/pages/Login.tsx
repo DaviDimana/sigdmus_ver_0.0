@@ -1,19 +1,45 @@
-
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Music, Mail, Lock } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Music, Mail, Lock, AlertCircle } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const { signIn } = useAuth();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Aqui será implementada a lógica de autenticação com Supabase
-    console.log('Login tentativa:', { email, password });
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/user_profiles/login', { /* ... */ });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Erro ao fazer login');
+        return;
+      }
+      if (!data.usuario.confirmado) {
+        setError('Seu cadastro ainda não foi confirmado. Verifique seu e-mail.');
+        return;
+      }
+      await signIn(email, password);
+      navigate('/dashboard');
+    } catch (error: any) {
+      console.error('Erro no login:', error);
+      setError(error.message || 'Erro ao fazer login');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -39,6 +65,13 @@ const Login = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {error && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -52,6 +85,7 @@ const Login = () => {
                     onChange={(e) => setEmail(e.target.value)}
                     className="pl-10"
                     required
+                    disabled={isLoading}
                   />
                 </div>
               </div>
@@ -68,12 +102,13 @@ const Login = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     className="pl-10"
                     required
+                    disabled={isLoading}
                   />
                 </div>
               </div>
 
-              <Button type="submit" className="w-full">
-                <span>Entrar</span>
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? 'Entrando...' : 'Entrar'}
               </Button>
             </form>
 

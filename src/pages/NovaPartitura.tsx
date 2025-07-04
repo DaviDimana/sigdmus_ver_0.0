@@ -6,14 +6,48 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { usePartituras, usePartitura } from '@/hooks/usePartituras';
 import { toast } from 'sonner';
 import PartituraForm from '@/components/PartituraForm';
-import { supabase } from '@/integrations/supabase/client';
 import { identifyInstrument } from '@/utils/instrumentIdentifier';
 import { useArquivos } from '@/hooks/useArquivos';
 import { useAuth } from '@/hooks/useAuth';
+import { getApiUrl } from '@/utils/apiConfig';
 
 function useQuery() {
   return new URLSearchParams(useLocation().search);
 }
+
+// Função para obter o token do localStorage
+const getToken = (): string | null => {
+  return localStorage.getItem('auth_token');
+};
+
+// Função para fazer requisições autenticadas
+const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  const token = getToken();
+  if (!token) {
+    throw new Error('Token não encontrado');
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      // Token inválido, fazer logout
+      localStorage.removeItem('auth_token');
+      throw new Error('Sessão expirada');
+    }
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Erro na requisição');
+  }
+
+  return response;
+};
 
 const NovaPartitura = () => {
   const navigate = useNavigate();
@@ -30,26 +64,46 @@ const NovaPartitura = () => {
 
   async function uploadPdfFiles(pdfFiles: File[], partituraId: string) {
     const fileInfos: { url: string; fileName: string; instrument: string | null }[] = [];
+    
     for (const file of pdfFiles) {
-      const fileName = `${partituraId}/${file.name}`;
-      const { error } = await supabase.storage
-        .from('arquivos')
-        .upload(fileName, file, { upsert: true });
+      try {
+        // Upload via API REST
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('metadata', JSON.stringify({
+          categoria: 'partitura',
+          obra: partituraId,
+          partitura_id: partituraId,
+        }));
 
-      if (error) {
-        toast.error(`Erro ao enviar ${file.name}: ${error.message}`);
-        continue;
-      }
-      
-      const { data } = supabase.storage.from('arquivos').getPublicUrl(fileName);
+        const token = getToken();
+        if (!token) {
+          throw new Error('Token não encontrado');
+        }
 
-      if (data?.publicUrl) {
+        const res = await fetch(`${getApiUrl()}/api/upload`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.message || 'Erro no upload');
+        }
+
+        const data = await res.json();
         const instrument = identifyInstrument(file.name);
         fileInfos.push({
-          url: data.publicUrl,
+          url: data.url,
           fileName: file.name,
           instrument: instrument,
         });
+      } catch (error: any) {
+        toast.error(`Erro ao enviar ${file.name}: ${error.message}`);
+        continue;
       }
     }
     return fileInfos;
@@ -61,6 +115,7 @@ const NovaPartitura = () => {
       const { pdfFiles, oldFiles, removedFiles, ...partituraData } = data;
       let partituraId = id;
       let finalPdfUrls = [];
+      
       // 1. Remover arquivos antigos marcados para remoção
       let remainingOldFiles = oldFiles ? oldFiles.filter((f: any) => !removedFiles.includes(f.fileName)) : [];
       if (isEdit && removedFiles && removedFiles.length > 0 && oldFiles) {
@@ -76,6 +131,7 @@ const NovaPartitura = () => {
           }
         }
       }
+      
       // 2. Upload de novos arquivos
       let newFileInfos = [];
       if (pdfFiles && pdfFiles.length > 0) {
@@ -101,8 +157,10 @@ const NovaPartitura = () => {
           }
         }
       }
+      
       // 3. Montar array final de pdf_urls
       finalPdfUrls = [...remainingOldFiles, ...newFileInfos];
+      
       // 4. Atualizar partitura (campos + pdf_urls)
       if (isEdit && id) {
         const { error: updateError } = await updatePartitura.mutateAsync({ id, updates: { ...partituraData, pdf_urls: finalPdfUrls } });

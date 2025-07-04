@@ -1,0 +1,82 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background gradient -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0ea5e9;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0284c7;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="musicGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#d946ef;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#c026d3;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="240" fill="url(#bgGradient)" filter="url(#shadow)"/>
+  
+  <!-- Music staff lines -->
+  <g stroke="#ffffff" stroke-width="3" opacity="0.9">
+    <line x1="120" y1="180" x2="392" y2="180"/>
+    <line x1="120" y1="200" x2="392" y2="200"/>
+    <line x1="120" y1="220" x2="392" y2="220"/>
+    <line x1="120" y1="240" x2="392" y2="240"/>
+    <line x1="120" y1="260" x2="392" y2="260"/>
+  </g>
+  
+  <!-- Musical notes -->
+  <g fill="url(#musicGradient)">
+    <!-- Note 1 -->
+    <ellipse cx="160" cy="180" rx="8" ry="6"/>
+    <rect x="168" y="180" width="3" height="60" rx="1.5"/>
+    <ellipse cx="168" cy="240" rx="6" ry="4"/>
+    
+    <!-- Note 2 -->
+    <ellipse cx="220" cy="200" rx="8" ry="6"/>
+    <rect x="228" y="200" width="3" height="60" rx="1.5"/>
+    <ellipse cx="228" cy="260" rx="6" ry="4"/>
+    
+    <!-- Note 3 -->
+    <ellipse cx="280" cy="220" rx="8" ry="6"/>
+    <rect x="288" y="220" width="3" height="60" rx="1.5"/>
+    <ellipse cx="288" cy="280" rx="6" ry="4"/>
+    
+    <!-- Note 4 -->
+    <ellipse cx="340" cy="240" rx="8" ry="6"/>
+    <rect x="348" y="240" width="3" height="60" rx="1.5"/>
+    <ellipse cx="348" cy="300" rx="6" ry="4"/>
+  </g>
+  
+  <!-- Treble clef -->
+  <path d="M 140 180 Q 140 200 140 220 Q 140 240 140 260 Q 140 280 140 300 Q 140 320 140 340 Q 140 360 140 380 Q 140 400 140 420 Q 140 440 140 460 Q 140 480 140 500" 
+        stroke="#ffffff" stroke-width="4" fill="none" opacity="0.8"/>
+  
+  <!-- Digital/tech elements -->
+  <g fill="#ffffff" opacity="0.7">
+    <!-- Small circles representing digital elements -->
+    <circle cx="100" cy="100" r="6"/>
+    <circle cx="412" cy="100" r="6"/>
+    <circle cx="100" cy="412" r="6"/>
+    <circle cx="412" cy="412" r="6"/>
+    
+    <!-- Connection lines -->
+    <line x1="106" y1="100" x2="406" y2="100" stroke="#ffffff" stroke-width="2" opacity="0.5"/>
+    <line x1="100" y1="106" x2="100" y2="406" stroke="#ffffff" stroke-width="2" opacity="0.5"/>
+    <line x1="412" y1="106" x2="412" y2="406" stroke="#ffffff" stroke-width="2" opacity="0.5"/>
+    <line x1="106" y1="412" x2="406" y2="412" stroke="#ffffff" stroke-width="2" opacity="0.5"/>
+  </g>
+  
+  <!-- Central dot representing focus/management -->
+  <circle cx="256" cy="256" r="12" fill="#ffffff" opacity="0.9"/>
+  <circle cx="256" cy="256" r="6" fill="url(#musicGradient)"/>
+  
+  <!-- Decorative elements -->
+  <g fill="#ffffff" opacity="0.3">
+    <circle cx="80" cy="80" r="3"/>
+    <circle cx="432" cy="80" r="3"/>
+    <circle cx="80" cy="432" r="3"/>
+    <circle cx="432" cy="432" r="3"/>
+  </g>
+</svg> 

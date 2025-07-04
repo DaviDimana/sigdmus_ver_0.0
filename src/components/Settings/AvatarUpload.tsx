@@ -3,6 +3,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, User, Camera } from 'lucide-react';
+import { getUploadConfig } from '@/utils/apiConfig';
 
 interface AvatarUploadProps {
   currentAvatarUrl?: string;
@@ -20,7 +21,9 @@ const AvatarUpload: React.FC<AvatarUploadProps> = ({
   const { toast } = useToast();
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const apiUrl = import.meta.env.VITE_API_URL;
+  const { uploadUrl } = getUploadConfig();
+  
+  console.log("Upload URL:", uploadUrl);
 
   const getInitials = (name: string) => {
     return name
@@ -63,9 +66,10 @@ const AvatarUpload: React.FC<AvatarUploadProps> = ({
 
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('avatar', file);
+      formData.append('userId', userId);
 
-      const res = await fetch(`${apiUrl}/api/upload`, {
+      const res = await fetch(uploadUrl, {
         method: 'POST',
         body: formData,
       });
@@ -75,8 +79,8 @@ const AvatarUpload: React.FC<AvatarUploadProps> = ({
         throw new Error(err.error || 'Erro no upload');
       }
 
-      const { url } = await res.json();
-      onAvatarUpdate(url);
+      const { avatarUrl } = await res.json();
+      onAvatarUpdate(avatarUrl);
 
       toast({
         title: "Sucesso!",

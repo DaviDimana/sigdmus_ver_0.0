@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Calendar, MapPin, Clock, User, Music, FileText, Trash2, Edit } from 'lucide-react';
 import ProgramViewer from './ProgramViewer';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
+import { getApiUrl } from '@/utils/apiConfig';
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -25,6 +25,40 @@ interface PerformanceDetailsDialogProps {
   onEdit?: (performance: any) => void;
   onDelete?: (performance: any) => void;
 }
+
+// Função para obter o token do localStorage
+const getToken = (): string | null => {
+  return localStorage.getItem('auth_token');
+};
+
+// Função para fazer requisições autenticadas
+const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  const token = getToken();
+  if (!token) {
+    throw new Error('Token não encontrado');
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      // Token inválido, fazer logout
+      localStorage.removeItem('auth_token');
+      throw new Error('Sessão expirada');
+    }
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Erro na requisição');
+  }
+
+  return response;
+};
 
 const PerformanceDetailsDialog: React.FC<PerformanceDetailsDialogProps> = ({
   isOpen,
@@ -46,20 +80,24 @@ const PerformanceDetailsDialog: React.FC<PerformanceDetailsDialogProps> = ({
         return;
       }
       // Buscar entre as performances do mesmo local, data e horário
-      const { data: groupPerformances, error } = await supabase
-        .from('performances')
-        .select('programa_arquivo_url')
-        .eq('local', performance.local)
-        .eq('data', performance.data)
-        .eq('horario', performance.horario);
-      if (!error && groupPerformances) {
-        const found = groupPerformances.find((p: any) => p.programa_arquivo_url && p.programa_arquivo_url.trim() !== '');
-        if (found && found.programa_arquivo_url) {
-          setSharedProgramUrl(found.programa_arquivo_url);
+      try {
+        const res = await authenticatedFetch(
+          `${getApiUrl()}/api/performances?local=${encodeURIComponent(performance.local)}&data=${performance.data}&horario=${performance.horario}`
+        );
+        const groupPerformances = await res.json();
+        
+        if (groupPerformances && groupPerformances.length > 0) {
+          const found = groupPerformances.find((p: any) => p.programa_arquivo_url && p.programa_arquivo_url.trim() !== '');
+          if (found && found.programa_arquivo_url) {
+            setSharedProgramUrl(found.programa_arquivo_url);
+          } else {
+            setSharedProgramUrl(null);
+          }
         } else {
           setSharedProgramUrl(null);
         }
-      } else {
+      } catch (error) {
+        console.error('Erro ao buscar programa compartilhado:', error);
         setSharedProgramUrl(null);
       }
     }
